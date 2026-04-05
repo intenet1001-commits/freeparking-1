@@ -1,0 +1,199 @@
+{
+  "version": "3.0",
+  "lastUpdated": "2026-04-05T11:22:19.742Z",
+  "activeFeatures": [
+    "freeparking_1",
+    "register",
+    "scripts"
+  ],
+  "primaryFeature": "freeparking_1",
+  "features": {
+    "freeparking_1": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-04-04T17:00:02.587Z",
+        "lastUpdated": "2026-04-05T11:21:25.719Z"
+      },
+      "lastFile": "/Users/gwanli/Documents/GitHub/myproduct_v4/freeparking_1/app/page.tsx"
+    },
+    "register": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-04-04T17:01:07.638Z",
+        "lastUpdated": "2026-04-05T11:22:19.742Z"
+      },
+      "lastFile": "/Users/gwanli/Documents/GitHub/myproduct_v4/freeparking_1/app/api/register/route.ts"
+    },
+    "scripts": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-04-04T17:01:50.323Z",
+        "lastUpdated": "2026-04-05T11:22:09.476Z"
+      },
+      "lastFile": "/Users/gwanli/Documents/GitHub/myproduct_v4/freeparking_1/scripts/register.py"
+    }
+  },
+  "pipeline": {
+    "currentPhase": 1,
+    "level": "Dynamic",
+    "phaseHistory": []
+  },
+  "session": {
+    "startedAt": "2026-04-04T16:46:33.393Z",
+    "onboardingCompleted": false,
+    "lastActivity": "2026-04-05T11:22:19.742Z"
+  },
+  "history": [
+    {
+      "timestamp": "2026-04-04T17:00:02.587Z",
+      "feature": "freeparking_1",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-04T17:00:16.569Z",
+      "feature": "freeparking_1",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-04T17:01:02.627Z",
+      "feature": "freeparking_1",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-04T17:01:07.638Z",
+      "feature": "register",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-04T17:01:50.323Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T03:55:58.368Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T03:57:12.860Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T03:57:53.206Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T03:58:51.732Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T04:17:52.534Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T04:17:58.238Z",
+      "feature": "freeparking_1",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T04:18:06.140Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T04:18:29.893Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T04:18:55.339Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T04:19:01.723Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T04:19:53.588Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T11:21:25.719Z",
+      "feature": "freeparking_1",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T11:21:32.626Z",
+      "feature": "register",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T11:22:09.476Z",
+      "feature": "scripts",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-04-05T11:22:19.742Z",
+      "feature": "register",
+      "phase": "do",
+      "action": "updated"
+    }
+  ],
+  "stateMachine": {
+    "defaultWorkflow": "default",
+    "activeWorkflows": {},
+    "totalTransitions": 0
+  },
+  "automation": {
+    "globalLevel": 2,
+    "trustScore": 40,
+    "pendingApprovals": 0,
+    "lastGateResult": null
+  },
+  "team": {
+    "enabled": true,
+    "stateFile": ".bkit/runtime/agent-state.json",
+    "eventsFile": ".bkit/runtime/agent-events.jsonl"
+  }
+}

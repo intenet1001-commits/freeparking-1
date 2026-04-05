@@ -1,0 +1,147 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775354350660,
+  "projectRoot": "/Users/gwanli/Documents/GitHub/myproduct_v4/freeparking_1",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "next",
+        "version": "15.3.0",
+        "category": "fullstack"
+      },
+      {
+        "name": "react",
+        "version": "19.0.0",
+        "category": "frontend"
+      },
+      {
+        "name": "react-dom",
+        "version": "19.0.0",
+        "category": "frontend"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": null,
+    "lintCommand": "npm run lint",
+    "devCommand": "npm run dev",
+    "scripts": {
+      "dev": "next dev -p 9020",
+      "build": "next build",
+      "start": "next start -p 9020",
+      "lint": "next lint"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "app",
+      "scripts"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "app": {
+      "path": "app",
+      "purpose": "Application code",
+      "fileCount": 3,
+      "lastAccessed": 1775354350601,
+      "keyFiles": [
+        "globals.css",
+        "layout.tsx",
+        "page.tsx"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1775354350609,
+      "keyFiles": [
+        "register.py",
+        "requirements.txt"
+      ]
+    },
+    "app/api": {
+      "path": "app/api",
+      "purpose": "API routes",
+      "fileCount": 0,
+      "lastAccessed": 1775354350611,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "scripts/register.py",
+      "accessCount": 5,
+      "lastAccessed": 1775388130255,
+      "type": "file"
+    },
+    {
+      "path": "scripts/inspect_site.py",
+      "accessCount": 4,
+      "lastAccessed": 1775361533050,
+      "type": "file"
+    },
+    {
+      "path": "app/api/register/route.ts",
+      "accessCount": 4,
+      "lastAccessed": 1775388139897,
+      "type": "file"
+    },
+    {
+      "path": "scripts/test_register.py",
+      "accessCount": 3,
+      "lastAccessed": 1775362741898,
+      "type": "file"
+    },
+    {
+      "path": "app/page.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775388086110,
+      "type": "file"
+    },
+    {
+      "path": ".env.local",
+      "accessCount": 1,
+      "lastAccessed": 1775361345960,
+      "type": "file"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 1,
+      "lastAccessed": 1775387291620,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

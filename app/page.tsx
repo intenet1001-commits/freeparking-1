@@ -121,8 +121,11 @@ export default function Home() {
   }
 
   async function handleBulkAdd() {
-    const entries = parseBulkInput(bulkText);
-    if (entries.length === 0) return;
+    const rawEntries = parseBulkInput(bulkText);
+    if (rawEntries.length === 0) return;
+    // 붙여넣기 내 중복 제거 (plate 기준)
+    const seen = new Set<string>();
+    const entries = rawEntries.filter((e) => { if (seen.has(e.plate)) return false; seen.add(e.plate); return true; });
     const newCars = entries.filter((e) => !cars.find((c) => c.plate === e.plate));
     const dupes = entries.filter((e) => cars.find((c) => c.plate === e.plate)).map((e) => e.plate);
     if (newCars.length > 0) {

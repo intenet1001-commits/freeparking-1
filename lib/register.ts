@@ -138,9 +138,9 @@ export async function registerCars(
 
       // 종일권 버튼 조회
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let btns: any[] = await page.querySelectorAll("input[type=button][id*='BTN_종일']");
+      let btns: any[] = await page.$$("input[type=button][id*='BTN_종일']");
       if (btns.length === 0) {
-        btns = await page.querySelectorAll("input[type=button][value*='종일']");
+        btns = await page.$$("input[type=button][value*='종일']");
       }
 
       // ── 선택 인덱스 결정 ──────────────────────────────────────────

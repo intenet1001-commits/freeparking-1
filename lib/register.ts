@@ -182,7 +182,15 @@ export async function registerCars(
       const btn = chosenIdx < btns.length ? btns[chosenIdx] : (btns[0] ?? null);
 
       if (!btn) {
-        emit({ plate, status: 'failed', message: '종일권 버튼 없음 (메뉴 구조 확인 필요)' });
+        // 디버그: 페이지의 모든 버튼 value 수집
+        const allBtns: any[] = await page.$$("input[type=button]");
+        const btnValues: string[] = [];
+        for (const b of allBtns.slice(0, 10)) {
+          const v = await b.getAttribute('value') ?? '';
+          if (v) btnValues.push(v);
+        }
+        const hint = btnValues.length > 0 ? `[버튼목록: ${btnValues.join(', ')}]` : '[버튼 없음]';
+        emit({ plate, status: 'failed', message: `종일권 버튼 없음 ${hint}` });
         continue;
       }
 

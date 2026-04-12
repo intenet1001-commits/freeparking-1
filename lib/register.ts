@@ -143,6 +143,12 @@ export async function registerCars(
         btns = await page.$$("input[type=button][value*='종일']");
       }
 
+      // 후보도 버튼도 없으면 실제로 입차되지 않은 것으로 판단
+      if (candidates.length === 0 && btns.length === 0) {
+        emit({ plate, status: 'not_entered', message: '입차 없음' });
+        continue;
+      }
+
       // ── 선택 인덱스 결정 ──────────────────────────────────────────
       let chosenIdx: number | null = null;
 

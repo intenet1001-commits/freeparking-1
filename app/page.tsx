@@ -14,6 +14,7 @@ import {
   ChevronUp,
   AlertCircle,
   MinusCircle,
+  Pencil,
   ClipboardList,
   Copy,
   Check,
@@ -51,6 +52,8 @@ export default function Home() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({ url: "", id: "", pw: "" });
   const logRef = useRef<HTMLDivElement>(null);
@@ -148,6 +151,12 @@ export default function Home() {
   async function removeCar(id: string) {
     await supabase.from("fp_cars").delete().eq("id", id);
     setCars((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  async function updateLabel(id: string) {
+    await supabase.from("fp_cars").update({ label: editLabel.trim() }).eq("id", id);
+    setCars((prev) => prev.map((c) => c.id === id ? { ...c, label: editLabel.trim() } : c));
+    setEditingId(null);
   }
 
   function toggleCar(id: string) {
@@ -492,20 +501,55 @@ export default function Home() {
                     onChange={() => toggleCar(car.id)}
                     className="w-4 h-4 accent-blue-500 cursor-pointer"
                   />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-mono font-medium text-white">
-                      {car.plate}
-                    </span>
-                    {car.label && (
-                      <span className="ml-2 text-xs text-gray-500">{car.label}</span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => removeCar(car.id)}
-                    className="text-gray-700 hover:text-red-400 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {editingId === car.id ? (
+                    <>
+                      <div className="flex-1 flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-mono font-medium text-white shrink-0">{car.plate}</span>
+                        <input
+                          autoFocus
+                          value={editLabel}
+                          onChange={(e) => setEditLabel(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") updateLabel(car.id);
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                          onBlur={() => updateLabel(car.id)}
+                          placeholder="메모 (선택)"
+                          className="flex-1 bg-gray-800 border border-blue-500 rounded px-2 py-0.5 text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                      <button
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => updateLabel(car.id)}
+                        className="text-blue-400 hover:text-blue-300 transition-colors"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-mono font-medium text-white">
+                          {car.plate}
+                        </span>
+                        {car.label && (
+                          <span className="ml-2 text-xs text-gray-500">{car.label}</span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => { setEditingId(car.id); setEditLabel(car.label); }}
+                        className="text-gray-700 hover:text-gray-400 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => removeCar(car.id)}
+                        className="text-gray-700 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

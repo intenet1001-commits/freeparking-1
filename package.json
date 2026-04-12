@@ -3,15 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 9020",
+    "dev": "next dev -p 9026",
     "build": "next build",
-    "start": "next start -p 9020",
+    "start": "next start -p 9026",
     "lint": "next lint"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^130",
+    "@supabase/supabase-js": "^2",
     "clsx": "^2.1.1",
     "lucide-react": "^0.475.0",
     "next": "^16.2.2",
+    "playwright-core": "^1.48",
     "react": "19.0.0",
     "react-dom": "19.0.0"
   },
@@ -22,6 +25,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.3.0",
+    "playwright": "^1.48",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

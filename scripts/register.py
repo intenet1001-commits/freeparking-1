@@ -93,7 +93,7 @@ def register_cars(url: str, admin_id: str, admin_pw: str, cars: list, selected_j
 
         except Exception as e:
             for car in cars:
-                emit(car["plate"], "failed", f"로그인 오류: {str(e)[:50]}")
+                emit(car["plate"], "failed", f"로그인 오류: {str(e)[:120]}")
             browser.close()
             return
 
@@ -113,7 +113,7 @@ def register_cars(url: str, admin_id: str, admin_pw: str, cars: list, selected_j
                 content = page.content()
 
                 if "입차된 차량" not in body_text and "차량번호:" not in body_text:
-                    emit(plate, "failed", "입차 차량 없음")
+                    emit(plate, "skipped", "입차 없음")
                     continue
 
                 candidates = extract_candidates(content)
@@ -164,7 +164,7 @@ def register_cars(url: str, admin_id: str, admin_pw: str, cars: list, selected_j
                 is_disabled = btn.is_disabled() or btn.get_attribute("disabled") is not None
                 if is_disabled:
                     if "적용내역" in body_text or "승인" in body_text:
-                        emit(plate, "duplicate", f"이미 오늘 {btn_label} 처리됨")
+                        emit(plate, "skipped", f"이미 오늘 {btn_label} 처리됨")
                     else:
                         emit(plate, "failed", f"{btn_label} 잔여 매수 없음")
                     continue

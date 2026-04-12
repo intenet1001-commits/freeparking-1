@@ -14,8 +14,11 @@ import {
   ChevronUp,
   AlertCircle,
   ClipboardList,
+  Copy,
+  Check,
 } from "lucide-react";
 import clsx from "clsx";
+import { supabase } from "@/lib/supabase";
 
 type CarEntry = {
   id: string;
@@ -32,7 +35,7 @@ type Candidate = {
 type LogEntry = {
   id: string;
   plate: string;
-  status: "pending" | "running" | "success" | "failed" | "duplicate" | "needs_selection";
+  status: "pending" | "running" | "success" | "failed" | "duplicate" | "skipped" | "needs_selection";
   message: string;
   ts: number;
   candidates?: Candidate[];
@@ -46,20 +49,24 @@ export default function Home() {
   const [showBulk, setShowBulk] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [running, setRunning] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({ url: "", id: "", pw: "" });
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem("freeparking_cars");
-    if (saved) setCars(JSON.parse(saved));
+    // Load cars from Supabase
+    supabase
+      .from("fp_cars")
+      .select("*")
+      .order("created_at")
+      .then(({ data }) => {
+        if (data) setCars(data.map((r) => ({ ...r, selected: true })));
+      });
+    // Settings remain in localStorage (sensitive info)
     const savedSettings = localStorage.getItem("freeparking_settings");
     if (savedSettings) setSettings(JSON.parse(savedSettings));
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem("freeparking_cars", JSON.stringify(cars));
-  }, [cars]);
 
   useEffect(() => {
     if (logRef.current) {
@@ -67,17 +74,23 @@ export default function Home() {
     }
   }, [logs]);
 
-  function addCar() {
+  async function addCar() {
     const plate = newPlate.trim().toUpperCase();
     if (!plate) return;
     if (cars.find((c) => c.plate === plate)) {
       alert("이미 등록된 차량번호입니다.");
       return;
     }
-    setCars((prev) => [
-      ...prev,
-      { id: Date.now().toString(), plate, label: newLabel.trim(), selected: true },
-    ]);
+    const { data, error } = await supabase
+      .from("fp_cars")
+      .insert({ plate, label: newLabel.trim() })
+      .select()
+      .single();
+    if (error) {
+      alert(`추가 실패: ${error.message}`);
+      return;
+    }
+    if (data) setCars((prev) => [...prev, { ...data, selected: true }]);
     setNewPlate("");
     setNewLabel("");
   }
@@ -107,30 +120,29 @@ export default function Home() {
       .filter(({ plate }) => plate.length >= 4);
   }
 
-  function handleBulkAdd() {
+  async function handleBulkAdd() {
     const entries = parseBulkInput(bulkText);
     if (entries.length === 0) return;
-    const dupes: string[] = [];
-    const newCars: CarEntry[] = [];
-    for (const { plate, label } of entries) {
-      if (cars.find((c) => c.plate === plate)) {
-        dupes.push(plate);
-      } else {
-        newCars.push({
-          id: `${Date.now()}-${Math.random()}`,
-          plate,
-          label,
-          selected: true,
-        });
-      }
+    const newCars = entries.filter((e) => !cars.find((c) => c.plate === e.plate));
+    const dupes = entries.filter((e) => cars.find((c) => c.plate === e.plate)).map((e) => e.plate);
+    if (newCars.length > 0) {
+      await supabase
+        .from("fp_cars")
+        .upsert(
+          newCars.map((c) => ({ plate: c.plate, label: c.label })),
+          { onConflict: "plate", ignoreDuplicates: true }
+        );
+      // Re-fetch full list
+      const { data } = await supabase.from("fp_cars").select("*").order("created_at");
+      if (data) setCars(data.map((r) => ({ ...r, selected: true })));
     }
-    if (newCars.length > 0) setCars((prev) => [...prev, ...newCars]);
     setBulkText("");
     setShowBulk(false);
     if (dupes.length > 0) alert(`이미 등록된 번호: ${dupes.join(", ")}`);
   }
 
-  function removeCar(id: string) {
+  async function removeCar(id: string) {
+    await supabase.from("fp_cars").delete().eq("id", id);
     setCars((prev) => prev.filter((c) => c.id !== id));
   }
 
@@ -186,18 +198,36 @@ export default function Home() {
     );
   }
 
+  function copyLogs() {
+    const statusLabel: Record<LogEntry["status"], string> = {
+      pending: "대기",
+      running: "진행중",
+      success: "✓ 완료",
+      failed: "✗ 실패",
+      duplicate: "— 중복",
+      skipped: "— 패스",
+      needs_selection: "? 선택필요",
+    };
+    const now = new Date().toLocaleString("ko-KR");
+    const lines = [
+      `[무료주차 자동등록 결과] ${now}`,
+      "",
+      ...logs.map((l) => `${l.plate}  ${statusLabel[l.status]}  ${l.message}`),
+      "",
+      `성공 ${logs.filter((l) => l.status === "success").length} / 실패 ${logs.filter((l) => l.status === "failed").length} / 중복 ${logs.filter((l) => l.status === "duplicate").length}`,
+    ];
+    navigator.clipboard.writeText(lines.join("\n"));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
   async function runRegistration() {
     const targets = cars.filter((c) => c.selected);
     if (targets.length === 0) {
       alert("등록할 차량을 선택해주세요.");
       return;
     }
-    if (!settings.url || !settings.id || !settings.pw) {
-      alert("설정에서 나이스파크 URL, 아이디, 비밀번호를 먼저 입력해주세요.");
-      setShowSettings(true);
-      return;
-    }
-
+    const runId = crypto.randomUUID();
     setRunning(true);
     setLogs(
       targets.map((c) => ({
@@ -224,6 +254,29 @@ export default function Home() {
       console.error(e);
     } finally {
       setRunning(false);
+      // Save logs to Supabase
+      setLogs((currentLogs) => {
+        const logsToSave = currentLogs.filter(
+          (l) => !["pending", "running"].includes(l.status)
+        );
+        if (logsToSave.length > 0) {
+          supabase
+            .from("fp_logs")
+            .insert(
+              logsToSave.map((l) => ({
+                run_id: runId,
+                plate: l.plate,
+                status: l.status,
+                message: l.message,
+                candidates: l.candidates ?? null,
+              }))
+            )
+            .then(({ error }) => {
+              if (error) console.error("로그 저장 실패:", error.message);
+            });
+        }
+        return currentLogs;
+      });
     }
   }
 
@@ -479,10 +532,49 @@ export default function Home() {
         </button>
 
         {/* 실행 로그 */}
-        {logs.length > 0 && (
+        {logs.length > 0 && (() => {
+          const done = logs.filter((l) => !["pending", "running"].includes(l.status)).length;
+          const total = logs.length;
+          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+          const success = logs.filter((l) => l.status === "success").length;
+          return (
           <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-800">
+            {/* 진행률 바 */}
+            <div className="px-5 pt-4 pb-2 space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-gray-400">
+                <span>{done === total && total > 0 ? "완료" : "진행 중"}</span>
+                <span className="font-mono">{done}/{total} ({pct}%)</span>
+              </div>
+              <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className={clsx(
+                    "h-full rounded-full transition-all duration-500",
+                    done === total && total > 0
+                      ? success === total ? "bg-green-500" : "bg-blue-500"
+                      : "bg-blue-500"
+                  )}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+            <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-300">실행 결과</h2>
+              <button
+                onClick={copyLogs}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-2.5 py-1.5 rounded-lg hover:bg-gray-800"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-green-400" />
+                    <span className="text-green-400">복사됨</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    복사
+                  </>
+                )}
+              </button>
             </div>
             <div ref={logRef} className="max-h-96 overflow-y-auto divide-y divide-gray-800/50">
               {logs.map((log) => (
@@ -525,8 +617,8 @@ export default function Home() {
               <span className="text-red-400">
                 ✗ 실패 {logs.filter((l) => l.status === "failed").length}
               </span>
-              <span className="text-yellow-400">
-                ⚠ 중복 {logs.filter((l) => l.status === "duplicate").length}
+              <span className="text-gray-500">
+                — 패스 {logs.filter((l) => l.status === "skipped" || l.status === "duplicate").length}
               </span>
               {logs.some((l) => l.status === "needs_selection") && (
                 <span className="text-orange-400">
@@ -535,7 +627,8 @@ export default function Home() {
               )}
             </div>
           </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
@@ -545,7 +638,8 @@ function StatusIcon({ status }: { status: LogEntry["status"] }) {
   if (status === "running") return <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />;
   if (status === "success") return <CheckCircle className="w-4 h-4 text-green-400" />;
   if (status === "failed") return <XCircle className="w-4 h-4 text-red-400" />;
-  if (status === "duplicate") return <XCircle className="w-4 h-4 text-yellow-400" />;
+  if (status === "duplicate") return <div className="w-4 h-4 rounded-full border-2 border-gray-600" />;
+  if (status === "skipped") return <div className="w-4 h-4 rounded-full border-2 border-gray-600" />;
   if (status === "needs_selection") return <AlertCircle className="w-4 h-4 text-orange-400" />;
   return <div className="w-4 h-4 rounded-full border border-gray-700" />;
 }
@@ -556,7 +650,8 @@ function StatusBadge({ status }: { status: LogEntry["status"] }) {
     running: ["text-blue-400", "진행중"],
     success: ["text-green-400", "완료"],
     failed: ["text-red-400", "실패"],
-    duplicate: ["text-yellow-400", "중복"],
+    duplicate: ["text-gray-500", "패스"],
+    skipped: ["text-gray-500", "패스"],
     needs_selection: ["text-orange-400", "선택필요"],
   } as const;
   const [color, label] = map[status];

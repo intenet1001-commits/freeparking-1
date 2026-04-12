@@ -6,7 +6,7 @@
 export type CarInput = { plate: string; label: string };
 export type EmitFn = (data: {
   plate: string;
-  status: string;
+  status: "pending" | "running" | "success" | "failed" | "duplicate" | "skipped" | "needs_selection" | "not_entered";
   message: string;
   candidates?: { plate: string; imageUrl?: string }[];
 }) => void;
@@ -130,7 +130,7 @@ export async function registerCars(
       const content: string = await page.content();
 
       if (!bodyText.includes('입차된 차량') && !bodyText.includes('차량번호:')) {
-        emit({ plate, status: 'skipped', message: '입차 없음' });
+        emit({ plate, status: 'not_entered', message: '입차 없음' });
         continue;
       }
 

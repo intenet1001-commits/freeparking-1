@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
   AlertCircle,
+  MinusCircle,
   ClipboardList,
   Copy,
   Check,
@@ -35,7 +36,7 @@ type Candidate = {
 type LogEntry = {
   id: string;
   plate: string;
-  status: "pending" | "running" | "success" | "failed" | "duplicate" | "skipped" | "needs_selection";
+  status: "pending" | "running" | "success" | "failed" | "duplicate" | "skipped" | "needs_selection" | "not_entered";
   message: string;
   ts: number;
   candidates?: Candidate[];
@@ -210,6 +211,7 @@ export default function Home() {
       duplicate: "— 중복",
       skipped: "— 패스",
       needs_selection: "? 선택필요",
+      not_entered: "— 입차안됨",
     };
     const now = new Date().toLocaleString("ko-KR");
     const lines = [
@@ -217,7 +219,7 @@ export default function Home() {
       "",
       ...logs.map((l) => `${l.plate}  ${statusLabel[l.status]}  ${l.message}`),
       "",
-      `성공 ${logs.filter((l) => l.status === "success").length} / 실패 ${logs.filter((l) => l.status === "failed").length} / 중복 ${logs.filter((l) => l.status === "duplicate").length}`,
+      `성공 ${logs.filter((l) => l.status === "success").length} / 실패 ${logs.filter((l) => l.status === "failed").length} / 중복 ${logs.filter((l) => l.status === "duplicate").length} / 입차안됨 ${logs.filter((l) => l.status === "not_entered").length}`,
     ];
     navigator.clipboard.writeText(lines.join("\n"));
     setCopied(true);
@@ -628,6 +630,11 @@ export default function Home() {
                   ? 선택필요 {logs.filter((l) => l.status === "needs_selection").length}
                 </span>
               )}
+              {logs.some((l) => l.status === "not_entered") && (
+                <span className="text-gray-400">
+                  ○ 입차안됨 {logs.filter((l) => l.status === "not_entered").length}
+                </span>
+              )}
             </div>
           </div>
           );
@@ -643,6 +650,7 @@ function StatusIcon({ status }: { status: LogEntry["status"] }) {
   if (status === "failed") return <XCircle className="w-4 h-4 text-red-400" />;
   if (status === "duplicate") return <div className="w-4 h-4 rounded-full border-2 border-gray-600" />;
   if (status === "skipped") return <div className="w-4 h-4 rounded-full border-2 border-gray-600" />;
+  if (status === "not_entered") return <MinusCircle className="w-4 h-4 text-gray-500" />;
   if (status === "needs_selection") return <AlertCircle className="w-4 h-4 text-orange-400" />;
   return <div className="w-4 h-4 rounded-full border border-gray-700" />;
 }
@@ -656,6 +664,7 @@ function StatusBadge({ status }: { status: LogEntry["status"] }) {
     duplicate: ["text-gray-500", "패스"],
     skipped: ["text-gray-500", "패스"],
     needs_selection: ["text-orange-400", "선택필요"],
+    not_entered: ["text-gray-400", "입차안됨"],
   } as const;
   const [color, label] = map[status];
   return <span className={clsx("text-xs font-medium", color)}>{label}</span>;

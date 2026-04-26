@@ -8,19 +8,23 @@ export type CarStatusResult = {
 
 export type EmitStatusFn = (data: CarStatusResult) => void;
 
-function extractCookies(headers: Headers): string {
+function extractSetCookies(headers: Headers): string[] {
   const cookies: string[] = [];
   headers.forEach((val, key) => {
     if (key.toLowerCase() === 'set-cookie') cookies.push(val.split(';')[0]);
   });
-  return cookies.join('; ');
+  return cookies;
 }
 
-function mergeCookies(existing: string, incoming: string): string {
+function mergeCookies(existing: string, incoming: string[]): string {
   const map: Record<string, string> = {};
-  for (const part of (existing + '; ' + incoming).split(';').map(s => s.trim()).filter(Boolean)) {
-    const [k, ...rest] = part.split('=');
-    if (k) map[k.trim()] = rest.join('=');
+  for (const part of existing.split(';').map(s => s.trim()).filter(Boolean)) {
+    const eq = part.indexOf('=');
+    if (eq > 0) map[part.slice(0, eq).trim()] = part.slice(eq + 1);
+  }
+  for (const c of incoming) {
+    const eq = c.indexOf('=');
+    if (eq > 0) map[c.slice(0, eq).trim()] = c.slice(eq + 1);
   }
   return Object.entries(map).map(([k, v]) => `${k}=${v}`).join('; ');
 }
@@ -28,6 +32,31 @@ function mergeCookies(existing: string, incoming: string): string {
 function buildBaseUrl(url: string): string {
   try { const u = new URL(url); return `${u.protocol}//${u.host}`; } catch { return url; }
 }
+
+function resolveUrl(base: string, href: string): string {
+  if (!href) return base;
+  if (href.startsWith('http')) return href;
+  const b = buildBaseUrl(base);
+  return `${b}${href.startsWith('/') ? '' : '/'}${href}`;
+}
+
+function parseFormAction(html: string, base: string): string {
+  const m = html.match(/<form[^>]+action=['"]([^'"]+)['"]/i);
+  return m ? resolveUrl(base, m[1]) : base;
+}
+
+function parseHiddenInputs(html: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const m of html.matchAll(/input[^>]+type=['"]hidden['"][^>]*/gi)) {
+    const tag = m[0];
+    const name = tag.match(/name=['"]([^'"]+)['"]/i)?.[1];
+    const value = tag.match(/value=['"]([^'"]*)['"]/i)?.[1] ?? '';
+    if (name) fields[name] = value;
+  }
+  return fields;
+}
+
+const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
 export async function checkCarStatuses(
   url: string,
@@ -40,45 +69,69 @@ export async function checkCarStatuses(
   const baseUrl = buildBaseUrl(url);
 
   try {
-    const loginPageResp = await fetch(url, { redirect: 'follow' });
-    cookieJar = mergeCookies(cookieJar, extractCookies(loginPageResp.headers));
+    // 1. GET login page
+    const p1 = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': UA } });
+    cookieJar = mergeCookies(cookieJar, extractSetCookies(p1.headers));
+    const loginHtml = await p1.text();
+    const loginAction = parseFormAction(loginHtml, p1.url || url);
+    const hiddenFields = parseHiddenInputs(loginHtml);
 
-    const loginResp = await fetch(loginPageResp.url, {
+    // 2. POST login
+    const p2 = await fetch(loginAction, {
       method: 'POST',
+      redirect: 'follow',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         Cookie: cookieJar,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        Referer: p1.url || url,
+        'User-Agent': UA,
+        Origin: baseUrl,
       },
-      body: new URLSearchParams({ j_username_form: adminId, j_password_form: adminPw }).toString(),
-      redirect: 'follow',
+      body: new URLSearchParams({
+        ...hiddenFields,
+        j_username_form: adminId,
+        j_password_form: adminPw,
+      }).toString(),
     });
-    cookieJar = mergeCookies(cookieJar, extractCookies(loginResp.headers));
+    cookieJar = mergeCookies(cookieJar, extractSetCookies(p2.headers));
+    const p2Html = await p2.text();
+    const p2Url = p2.url || loginAction;
 
-    const loginHtml = await loginResp.text();
-    if (!loginResp.url.includes('carSearch') && !loginHtml.includes('carSearch')) {
-      for (const plate of plates) emit({ plate, status: 'error', message: '로그인 실패' });
+    if (!p2Url.includes('carSearch') && !p2Html.includes('carSearch')) {
+      for (const plate of plates) emit({ plate, status: 'error', message: '로그인 실패 (URL/아이디/비밀번호 확인)' });
       return;
     }
 
-    const carSearchUrl = loginResp.url.includes('carSearch')
-      ? loginResp.url : `${baseUrl}/carSearch`;
+    const carSearchUrl = p2Url.includes('carSearch')
+      ? p2Url
+      : (() => { const m = p2Html.match(/href=['"]([^'"]*carSearch[^'"]*)['"]/i); return m ? resolveUrl(baseUrl, m[1]) : `${baseUrl}/carSearch.cs`; })();
 
     for (const plate of plates) {
       const last4 = getLast4(plate);
       const normPlate = normalizePlate(plate);
       try {
-        const resp = await fetch(carSearchUrl, {
+        // GET carSearch to get form
+        const csPage = await fetch(carSearchUrl, {
+          headers: { Cookie: cookieJar, 'User-Agent': UA },
+          redirect: 'follow',
+        });
+        cookieJar = mergeCookies(cookieJar, extractSetCookies(csPage.headers));
+        const csHtml = await csPage.text();
+        const searchAction = parseFormAction(csHtml, carSearchUrl);
+        const csHidden = parseHiddenInputs(csHtml);
+
+        const resp = await fetch(searchAction, {
           method: 'POST',
+          redirect: 'follow',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
             Cookie: cookieJar,
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            Referer: carSearchUrl,
+            'User-Agent': UA,
           },
-          body: new URLSearchParams({ carNumber: last4 }).toString(),
-          redirect: 'follow',
+          body: new URLSearchParams({ ...csHidden, carNumber: last4 }).toString(),
         });
-        cookieJar = mergeCookies(cookieJar, extractCookies(resp.headers));
+        cookieJar = mergeCookies(cookieJar, extractSetCookies(resp.headers));
         const html = await resp.text();
         const bodyText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
@@ -88,7 +141,7 @@ export async function checkCarStatuses(
         }
 
         const candidates = extractCandidates(html);
-        const btnRe = /input[^>]+type=["']?button["']?[^>]+(?:id=['"][^'"]*BTN_종일[^'"]*['"]|value=['"][^'"]*종일[^'"]*['"])[^>]*>/gi;
+        const btnRe = /input[^>]+type=["']?button["']?[^>]+(?:id=['"][^'"]*BTN_종일[^'"]*['"]|value=['"][^'"]*종일[^'"]*['"])[^>]*/gi;
         const btnMatches = [...html.matchAll(btnRe)];
         const isDisabled = btnMatches.some(m => /disabled/i.test(m[0]));
 

@@ -93,25 +93,32 @@ export default function Home() {
         if (data) setCars(data.map((r) => ({ ...r, selected: true })));
       });
     // Load settings from Supabase; migrate from localStorage if empty
+    // url 컬럼에 JSON {url, pw} 형태로 저장 (admin_pw 컬럼 존재 여부와 무관하게 동작)
     supabase
       .from("fp_settings")
-      .select("url, admin_id, admin_pw")
+      .select("url, admin_id")
       .eq("id", 1)
       .single()
       .then(({ data }) => {
         if (data && (data.url || data.admin_id)) {
-          // admin_pw 컬럼이 없거나 null이면 localStorage에서 보완
-          const localPw = (() => { try { return JSON.parse(localStorage.getItem('freeparking_settings') ?? '{}')?.pw ?? ''; } catch { return ''; } })();
-          setSettings({ url: data.url ?? '', id: data.admin_id ?? '', pw: data.admin_pw || localPw });
+          let loadedUrl = data.url ?? '';
+          let loadedPw = '';
+          if (loadedUrl.startsWith('{')) {
+            try { const p = JSON.parse(loadedUrl); loadedUrl = p.url ?? loadedUrl; loadedPw = p.pw ?? ''; } catch {}
+          }
+          if (!loadedPw) {
+            try { loadedPw = JSON.parse(localStorage.getItem('freeparking_settings') ?? '{}')?.pw ?? ''; } catch {}
+          }
+          setSettings({ url: loadedUrl, id: data.admin_id ?? '', pw: loadedPw });
         } else {
           // 로컬 설정 있으면 Supabase로 마이그레이션
           const local = localStorage.getItem("freeparking_settings");
           if (local) {
             const parsed = JSON.parse(local);
             setSettings(parsed);
+            const packed = JSON.stringify({ url: parsed.url, pw: parsed.pw });
             supabase.from("fp_settings").upsert({
-              id: 1, url: parsed.url, admin_id: parsed.id, admin_pw: parsed.pw,
-              updated_at: new Date().toISOString(),
+              id: 1, url: packed, admin_id: parsed.id, updated_at: new Date().toISOString(),
             });
           }
         }
@@ -217,9 +224,11 @@ export default function Home() {
 
   async function saveSettings() {
     localStorage.setItem('freeparking_settings', JSON.stringify({ url: settings.url, id: settings.id, pw: settings.pw }));
+    // url 컬럼에 {url, pw}를 JSON으로 저장 → admin_pw 컬럼 없어도 다기기 동기화 가능
+    const packedUrl = JSON.stringify({ url: settings.url, pw: settings.pw });
     await supabase
       .from("fp_settings")
-      .upsert({ id: 1, url: settings.url, admin_id: settings.id, admin_pw: settings.pw, updated_at: new Date().toISOString() });
+      .upsert({ id: 1, url: packedUrl, admin_id: settings.id, updated_at: new Date().toISOString() });
     setShowSettings(false);
   }
 

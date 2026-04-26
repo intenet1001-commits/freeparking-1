@@ -76,7 +76,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // Load cars from Supabase
     supabase
       .from("fp_cars")
       .select("*")
@@ -84,9 +83,15 @@ export default function Home() {
       .then(({ data }) => {
         if (data) setCars(data.map((r) => ({ ...r, selected: true })));
       });
-    // Settings remain in localStorage (sensitive info)
-    const savedSettings = localStorage.getItem("freeparking_settings");
-    if (savedSettings) setSettings(JSON.parse(savedSettings));
+    // Load settings from Supabase (shared across devices)
+    supabase
+      .from("fp_settings")
+      .select("url, admin_id, admin_pw")
+      .eq("id", 1)
+      .single()
+      .then(({ data }) => {
+        if (data) setSettings({ url: data.url, id: data.admin_id, pw: data.admin_pw });
+      });
   }, []);
 
   useEffect(() => {
@@ -186,8 +191,10 @@ export default function Home() {
     setCars((prev) => prev.map((c) => ({ ...c, selected: val })));
   }
 
-  function saveSettings() {
-    localStorage.setItem("freeparking_settings", JSON.stringify(settings));
+  async function saveSettings() {
+    await supabase
+      .from("fp_settings")
+      .upsert({ id: 1, url: settings.url, admin_id: settings.id, admin_pw: settings.pw, updated_at: new Date().toISOString() });
     setShowSettings(false);
   }
 

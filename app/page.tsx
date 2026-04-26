@@ -56,7 +56,13 @@ export default function Home() {
   const [editLabel, setEditLabel] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({ url: "", id: "", pw: "" });
+  const [isLocal, setIsLocal] = useState(true);
   const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const hostname = window.location.hostname;
+    setIsLocal(hostname === "localhost" || /^(192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|10\.)/.test(hostname));
+  }, []);
 
   useEffect(() => {
     // Load cars from Supabase
@@ -349,6 +355,17 @@ export default function Home() {
           </button>
         </div>
 
+        {/* 배포 환경 안내 배너 */}
+        {!isLocal && (
+          <div className="bg-amber-950/40 border border-amber-800/50 rounded-2xl px-4 py-3 space-y-1">
+            <p className="text-sm font-semibold text-amber-400">📋 조회 전용 모드</p>
+            <p className="text-xs text-amber-300/70">
+              자동등록(Playwright)은 로컬에서만 실행 가능합니다.
+              차량 추가·수정·삭제는 여기서도 가능합니다.
+            </p>
+          </div>
+        )}
+
         {/* 설정 패널 */}
         {showSettings && (
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3">
@@ -557,28 +574,35 @@ export default function Home() {
         </div>
 
         {/* 실행 버튼 */}
-        <button
-          onClick={runRegistration}
-          disabled={running || selectedCount === 0}
-          className={clsx(
-            "w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-sm transition-all",
-            running || selectedCount === 0
-              ? "bg-gray-800 text-gray-600 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30"
-          )}
-        >
-          {running ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              등록 중... ({selectedCount}대)
-            </>
-          ) : (
-            <>
-              <Play className="w-4 h-4" />
-              무료주차 등록 실행 ({selectedCount}대)
-            </>
-          )}
-        </button>
+        {isLocal ? (
+          <button
+            onClick={runRegistration}
+            disabled={running || selectedCount === 0}
+            className={clsx(
+              "w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-sm transition-all",
+              running || selectedCount === 0
+                ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30"
+            )}
+          >
+            {running ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                등록 중... ({selectedCount}대)
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4" />
+                무료주차 등록 실행 ({selectedCount}대)
+              </>
+            )}
+          </button>
+        ) : (
+          <div className="w-full flex flex-col items-center gap-1.5 py-3.5 rounded-2xl bg-gray-800/50 border border-gray-700/50">
+            <span className="text-sm font-semibold text-gray-500">자동등록 실행 불가</span>
+            <span className="text-xs text-gray-600">로컬(맥)에서 실행해주세요</span>
+          </div>
+        )}
 
         {/* 실행 로그 */}
         {logs.length > 0 && (() => {

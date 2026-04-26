@@ -549,7 +549,7 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white">무료주차 자동등록</h1>
-              <p className="text-xs text-gray-400">HI PARKING · 의와 에이스 청계타워</p>
+              <p className="text-xs text-gray-400">HI PARKING · 의왕 에이스 청계타워</p>
             </div>
           </div>
           <button

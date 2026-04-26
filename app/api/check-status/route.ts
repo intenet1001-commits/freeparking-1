@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server';
-import { registerCarsHttp } from '@/lib/register-http';
+import { checkCarStatuses } from '@/lib/check-status';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const { cars, settings, selectedJson } = await req.json();
+  const { plates, settings } = await req.json();
 
   const url = settings?.url || process.env.NICEPARK_URL || '';
   const adminId = settings?.id || process.env.NICEPARK_ID || '';
@@ -14,21 +14,16 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const errors: string[] = [];
       try {
-        const result = await registerCarsHttp(url, adminId, adminPw, cars, selectedJson || {}, (data) => {
-          if (data.status === 'failed') errors.push(`${data.plate}: ${data.message}`);
+        await checkCarStatuses(url, adminId, adminPw, plates, (data) => {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
         });
-        if (!result.success) errors.push(...result.errors.filter(e => !errors.includes(e)));
       } catch (e) {
-        const msg = String(e);
-        errors.push(msg);
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`)
+          encoder.encode(`data: ${JSON.stringify({ error: String(e) })}\n\n`)
         );
       }
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, errors })}\n\n`));
+      controller.enqueue(encoder.encode('data: {"done":true}\n\n'));
       controller.close();
     },
   });

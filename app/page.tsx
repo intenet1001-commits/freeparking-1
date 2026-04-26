@@ -18,6 +18,8 @@ import {
   ClipboardList,
   Copy,
   Check,
+  Search,
+  RefreshCw,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabase";
@@ -32,6 +34,13 @@ type CarEntry = {
 type Candidate = {
   plate: string;
   imageUrl?: string;
+};
+
+type CarStatus = {
+  status: 'not_entered' | 'entered' | 'registered' | 'no_quota' | 'multi_car' | 'error';
+  message: string;
+  checkedAt?: number;
+  isLast?: boolean; // fp_logs 기반 마지막 기록
 };
 
 type LogEntry = {
@@ -57,6 +66,8 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({ url: "", id: "", pw: "" });
   const [isLocal, setIsLocal] = useState(true);
+  const [statusMap, setStatusMap] = useState<Record<string, CarStatus>>({});
+  const [checkingStatus, setCheckingStatus] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -178,6 +189,80 @@ export default function Home() {
   function saveSettings() {
     localStorage.setItem("freeparking_settings", JSON.stringify(settings));
     setShowSettings(false);
+  }
+
+  async function runStatusCheck() {
+    const plates = cars.map((c) => c.plate);
+    if (plates.length === 0) return;
+    setCheckingStatus(true);
+    setStatusMap({});
+    try {
+      const resp = await fetch("/api/check-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plates, settings }),
+      });
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        for (const line of chunk.split("\n").filter((l) => l.startsWith("data: "))) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.done) break;
+            if (data.plate) {
+              setStatusMap((prev) => ({
+                ...prev,
+                [data.plate]: { status: data.status, message: data.message, checkedAt: Date.now() },
+              }));
+            }
+          } catch {}
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCheckingStatus(false);
+    }
+  }
+
+  async function loadLastStatus() {
+    const plates = cars.map((c) => c.plate);
+    if (plates.length === 0) return;
+    setCheckingStatus(true);
+    const { data } = await supabase
+      .from("fp_logs")
+      .select("plate, status, message, created_at")
+      .in("plate", plates)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (data) {
+      const map: Record<string, CarStatus> = {};
+      for (const row of data) {
+        if (!map[row.plate]) {
+          const s = row.status as CarStatus["status"];
+          map[row.plate] = {
+            status: ["not_entered", "entered", "registered", "no_quota", "multi_car", "error"].includes(s)
+              ? s
+              : row.status === "success"
+              ? "registered"
+              : row.status === "skipped" || row.status === "duplicate"
+              ? "registered"
+              : row.status === "failed"
+              ? "error"
+              : "not_entered",
+            message: row.message,
+            checkedAt: new Date(row.created_at).getTime(),
+            isLast: true,
+          };
+        }
+      }
+      setStatusMap(map);
+    }
+    setCheckingStatus(false);
   }
 
   async function readSSE(
@@ -355,15 +440,9 @@ export default function Home() {
           </button>
         </div>
 
-        {/* 배포 환경 안내 배너 */}
-        {!isLocal && (
-          <div className="bg-amber-950/40 border border-amber-800/50 rounded-2xl px-4 py-3 space-y-1">
-            <p className="text-sm font-semibold text-amber-400">📋 조회 전용 모드</p>
-            <p className="text-xs text-amber-300/70">
-              자동등록(Playwright)은 로컬에서만 실행 가능합니다.
-              차량 추가·수정·삭제는 여기서도 가능합니다.
-            </p>
-          </div>
+        {/* 오류 시 클로드코드 전달 버튼 */}
+        {logs.length > 0 && !running && logs.some(l => l.status === "failed") && (
+          <ClaudeCodeReportButton logs={logs} settings={settings} />
         )}
 
         {/* 설정 패널 */}
@@ -545,12 +624,15 @@ export default function Home() {
                     </>
                   ) : (
                     <>
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-mono font-medium text-white">
                           {car.plate}
                         </span>
                         {car.label && (
-                          <span className="ml-2 text-xs text-gray-500">{car.label}</span>
+                          <span className="text-xs text-gray-500">{car.label}</span>
+                        )}
+                        {statusMap[car.plate] && (
+                          <CarStatusBadge s={statusMap[car.plate]} />
                         )}
                       </div>
                       <button
@@ -572,6 +654,21 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {/* 현황 조회 버튼 */}
+        {cars.length > 0 && (
+          <button
+            onClick={isLocal ? runStatusCheck : loadLastStatus}
+            disabled={checkingStatus}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl text-sm font-medium transition-all bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed border border-gray-700"
+          >
+            {checkingStatus ? (
+              <><Loader2 className="w-4 h-4 animate-spin" />조회 중...</>
+            ) : (
+              <><Search className="w-4 h-4" />{isLocal ? "실시간 현황 조회" : "마지막 기록 불러오기"}</>
+            )}
+          </button>
+        )}
 
         {/* 실행 버튼 */}
         {isLocal ? (
@@ -736,4 +833,79 @@ function StatusBadge({ status }: { status: LogEntry["status"] }) {
   } as const;
   const [color, label] = map[status];
   return <span className={clsx("text-xs font-medium", color)}>{label}</span>;
+}
+
+function CarStatusBadge({ s }: { s: { status: string; message: string; checkedAt?: number; isLast?: boolean } }) {
+  const map: Record<string, [string, string]> = {
+    not_entered: ["bg-gray-800 text-gray-400", "미입차"],
+    entered:     ["bg-yellow-900/50 text-yellow-400 border border-yellow-800/50", "입차중"],
+    registered:  ["bg-green-900/50 text-green-400 border border-green-800/50", "등록완료"],
+    no_quota:    ["bg-orange-900/50 text-orange-400 border border-orange-800/50", "잔여없음"],
+    multi_car:   ["bg-orange-900/50 text-orange-400 border border-orange-800/50", "복수차량"],
+    error:       ["bg-red-900/50 text-red-400 border border-red-800/50", "오류"],
+  };
+  const [cls, label] = map[s.status] ?? ["bg-gray-800 text-gray-500", s.status];
+  const time = s.checkedAt
+    ? new Date(s.checkedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+    : null;
+  return (
+    <span className={clsx("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium", cls)}>
+      {label}
+      {time && <span className="opacity-60 font-normal">{s.isLast ? "기록" : ""} {time}</span>}
+    </span>
+  );
+}
+
+function ClaudeCodeReportButton({ logs, settings }: {
+  logs: LogEntry[];
+  settings: { url: string; id: string; pw: string };
+}) {
+  const [copied, setCopied] = useState(false);
+  const failedLogs = logs.filter(l => l.status === "failed");
+
+  function generatePrompt() {
+    const now = new Date().toLocaleString("ko-KR");
+    const lines = [
+      `## freeparking_1 자동등록 오류 보고`,
+      ``,
+      `**발생 시간**: ${now}`,
+      `**사이트 URL**: ${settings.url || "(미설정)"}`,
+      `**관리자 ID**: ${settings.id || "(미설정)"}`,
+      ``,
+      `**실패 차량 목록**:`,
+      ...failedLogs.map(l => `- ${l.plate}: ${l.message}`),
+      ``,
+      `lib/register-http.ts의 HTTP fetch 기반 구현이 실패했습니다.`,
+      `Playwright를 사용해 직접 디버깅 후 register-http.ts를 개선해주세요.`,
+      `(비밀번호는 직접 입력 필요)`,
+    ];
+    return lines.join("\n");
+  }
+
+  function copyPrompt() {
+    navigator.clipboard.writeText(generatePrompt());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }
+
+  return (
+    <div className="bg-red-950/30 border border-red-800/40 rounded-2xl px-4 py-3 flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-red-400">등록 실패 차량 있음</p>
+        <p className="text-xs text-red-300/60 mt-0.5">
+          {failedLogs.map(l => l.plate).join(", ")}
+        </p>
+      </div>
+      <button
+        onClick={copyPrompt}
+        className="shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-900/70 text-red-300 border border-red-700/40 transition-colors"
+      >
+        {copied ? (
+          <><Check className="w-3.5 h-3.5 text-green-400" /><span className="text-green-400">복사됨</span></>
+        ) : (
+          <><Copy className="w-3.5 h-3.5" />Claude Code에 전달</>
+        )}
+      </button>
+    </div>
+  );
 }

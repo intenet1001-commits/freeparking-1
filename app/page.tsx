@@ -52,7 +52,12 @@ type LogEntry = {
   candidates?: Candidate[];
 };
 
+const APP_PW = "werwer1.";
+
 export default function Home() {
+  const [authed, setAuthed] = useState(false);
+  const [pwInput, setPwInput] = useState("");
+  const [pwError, setPwError] = useState(false);
   const [cars, setCars] = useState<CarEntry[]>([]);
   const [newPlate, setNewPlate] = useState("");
   const [newLabel, setNewLabel] = useState("");
@@ -69,6 +74,10 @@ export default function Home() {
   const [statusMap, setStatusMap] = useState<Record<string, CarStatus>>({});
   const [checkingStatus, setCheckingStatus] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (localStorage.getItem("fp_authed") === "1") setAuthed(true);
+  }, []);
 
   useEffect(() => {
     const hostname = window.location.hostname;
@@ -429,8 +438,48 @@ export default function Home() {
     }
   }
 
+  function submitPw() {
+    if (pwInput === APP_PW) {
+      localStorage.setItem("fp_authed", "1");
+      setAuthed(true);
+      setPwError(false);
+    } else {
+      setPwError(true);
+    }
+  }
+
   const selectedCount = cars.filter((c) => c.selected).length;
   const allSelected = cars.length > 0 && cars.every((c) => c.selected);
+
+  if (!authed) return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 w-full max-w-sm space-y-4">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="bg-blue-600 rounded-xl p-2"><Car className="w-5 h-5 text-white" /></div>
+          <h1 className="text-lg font-bold text-white">무료주차 자동등록</h1>
+        </div>
+        <input
+          type="password"
+          placeholder="비밀번호"
+          value={pwInput}
+          onChange={(e) => { setPwInput(e.target.value); setPwError(false); }}
+          onKeyDown={(e) => e.key === "Enter" && submitPw()}
+          autoFocus
+          className={clsx(
+            "w-full bg-gray-800 border rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none",
+            pwError ? "border-red-500 focus:border-red-400" : "border-gray-700 focus:border-blue-500"
+          )}
+        />
+        {pwError && <p className="text-xs text-red-400">비밀번호가 틀렸습니다.</p>}
+        <button
+          onClick={submitPw}
+          className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
+        >
+          입장
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-950 p-4 md:p-8">

@@ -496,6 +496,7 @@ export default function Home() {
           onChange={(e) => { setPwInput(e.target.value); setPwError(false); }}
           onKeyDown={(e) => e.key === "Enter" && submitPw()}
           autoFocus
+          suppressHydrationWarning
           className={clsx(
             "w-full bg-gray-800 border rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none",
             pwError ? "border-red-500 focus:border-red-400" : "border-gray-700 focus:border-blue-500"

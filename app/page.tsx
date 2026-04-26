@@ -226,9 +226,27 @@ export default function Home() {
     localStorage.setItem('freeparking_settings', JSON.stringify({ url: settings.url, id: settings.id, pw: settings.pw }));
     // url 컬럼에 {url, pw}를 JSON으로 저장 → admin_pw 컬럼 없어도 다기기 동기화 가능
     const packedUrl = JSON.stringify({ url: settings.url, pw: settings.pw });
-    await supabase
+    const { error } = await supabase
       .from("fp_settings")
       .upsert({ id: 1, url: packedUrl, admin_id: settings.id, updated_at: new Date().toISOString() });
+    if (error) {
+      alert(`저장 실패: ${error.message}`);
+      return;
+    }
+    // 저장 직후 읽어서 비밀번호 포함 여부 확인
+    const { data: verify } = await supabase.from("fp_settings").select("url, admin_id").eq("id", 1).single();
+    if (verify?.url?.startsWith('{')) {
+      try {
+        const p = JSON.parse(verify.url);
+        if (p.pw) {
+          alert(`저장 완료 ✓\nURL: ${p.url}\nID: ${verify.admin_id}\n비밀번호: ${'•'.repeat(p.pw.length)} (저장됨)`);
+        } else {
+          alert('저장됨, 비밀번호 없음');
+        }
+      } catch { alert('저장됨 (파싱 오류)'); }
+    } else {
+      alert('저장됨');
+    }
     setShowSettings(false);
   }
 

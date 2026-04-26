@@ -68,6 +68,7 @@ export default function Home() {
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editPlate, setEditPlate] = useState("");
   const [editLabel, setEditLabel] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({ url: "", id: "", pw: "" });
@@ -204,9 +205,12 @@ export default function Home() {
     setCars((prev) => prev.filter((c) => c.id !== id));
   }
 
-  async function updateLabel(id: string) {
-    await supabase.from("fp_cars").update({ label: editLabel.trim() }).eq("id", id);
-    setCars((prev) => prev.map((c) => c.id === id ? { ...c, label: editLabel.trim() } : c));
+  async function updateCar(id: string) {
+    const plate = editPlate.trim().toUpperCase();
+    const label = editLabel.trim();
+    if (!plate) return;
+    await supabase.from("fp_cars").update({ plate, label }).eq("id", id);
+    setCars((prev) => prev.map((c) => c.id === id ? { ...c, plate, label } : c));
     setEditingId(null);
   }
 
@@ -730,24 +734,26 @@ export default function Home() {
                   />
                   {editingId === car.id ? (
                     <>
-                      <div className="flex-1 flex items-center gap-2 min-w-0">
-                        <span className="text-sm font-mono font-medium text-white shrink-0">{car.plate}</span>
+                      <div className="flex-1 flex items-center gap-1.5 min-w-0">
                         <input
                           autoFocus
+                          value={editPlate}
+                          onChange={(e) => setEditPlate(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") updateCar(car.id); if (e.key === "Escape") setEditingId(null); }}
+                          placeholder="차량번호"
+                          className="w-28 bg-gray-800 border border-blue-500 rounded px-2 py-0.5 text-xs font-mono text-white focus:outline-none"
+                        />
+                        <input
                           value={editLabel}
                           onChange={(e) => setEditLabel(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") updateLabel(car.id);
-                            if (e.key === "Escape") setEditingId(null);
-                          }}
-                          onBlur={() => updateLabel(car.id)}
+                          onKeyDown={(e) => { if (e.key === "Enter") updateCar(car.id); if (e.key === "Escape") setEditingId(null); }}
                           placeholder="메모 (선택)"
-                          className="flex-1 bg-gray-800 border border-blue-500 rounded px-2 py-0.5 text-xs text-white focus:outline-none"
+                          className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-xs text-white focus:outline-none"
                         />
                       </div>
                       <button
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => updateLabel(car.id)}
+                        onClick={() => updateCar(car.id)}
                         className="text-blue-400 hover:text-blue-300 transition-colors"
                       >
                         <Check className="w-4 h-4" />
@@ -767,7 +773,7 @@ export default function Home() {
                         )}
                       </div>
                       <button
-                        onClick={() => { setEditingId(car.id); setEditLabel(car.label); }}
+                        onClick={() => { setEditingId(car.id); setEditPlate(car.plate); setEditLabel(car.label); }}
                         className="text-gray-700 hover:text-gray-400 transition-colors"
                       >
                         <Pencil className="w-3.5 h-3.5" />

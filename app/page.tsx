@@ -63,6 +63,7 @@ export default function Home() {
   const [newLabel, setNewLabel] = useState("");
   const [bulkText, setBulkText] = useState("");
   const [showBulk, setShowBulk] = useState(false);
+  const [showAddCar, setShowAddCar] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -605,17 +606,25 @@ export default function Home() {
         )}
 
         {/* 차량 추가 */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3">
-          <div className="flex items-center justify-between">
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setShowAddCar((v) => !v)}
+            className="w-full flex items-center justify-between px-5 py-4 text-left"
+          >
             <h2 className="text-sm font-semibold text-gray-300">차량 추가</h2>
-            <button
-              onClick={() => setShowBulk((v) => !v)}
-              className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              <ClipboardList className="w-3.5 h-3.5" />
-              일괄 입력
-            </button>
-          </div>
+            <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showAddCar ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showAddCar && <div className="px-5 pb-5 space-y-3">
+            <div className="flex items-center justify-end">
+              <button
+                onClick={() => setShowBulk((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                일괄 입력
+              </button>
+            </div>
 
           {showBulk ? (
             <div className="space-y-2">
@@ -668,6 +677,7 @@ export default function Home() {
               </button>
             </div>
           )}
+          </div>}
         </div>
 
         {/* 차량 목록 */}

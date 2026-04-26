@@ -92,14 +92,27 @@ export default function Home() {
       .then(({ data }) => {
         if (data) setCars(data.map((r) => ({ ...r, selected: true })));
       });
-    // Load settings from Supabase (shared across devices)
+    // Load settings from Supabase; migrate from localStorage if empty
     supabase
       .from("fp_settings")
       .select("url, admin_id, admin_pw")
       .eq("id", 1)
       .single()
       .then(({ data }) => {
-        if (data) setSettings({ url: data.url, id: data.admin_id, pw: data.admin_pw });
+        if (data && (data.url || data.admin_id)) {
+          setSettings({ url: data.url, id: data.admin_id, pw: data.admin_pw });
+        } else {
+          // 로컬 설정 있으면 Supabase로 마이그레이션
+          const local = localStorage.getItem("freeparking_settings");
+          if (local) {
+            const parsed = JSON.parse(local);
+            setSettings(parsed);
+            supabase.from("fp_settings").upsert({
+              id: 1, url: parsed.url, admin_id: parsed.id, admin_pw: parsed.pw,
+              updated_at: new Date().toISOString(),
+            });
+          }
+        }
       });
   }, []);
 

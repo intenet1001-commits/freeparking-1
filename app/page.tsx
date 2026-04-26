@@ -679,6 +679,11 @@ export default function Home() {
           </button>
         )}
 
+        {/* 현황 조회 오류 보고 */}
+        {Object.values(statusMap).some(s => s.status === "error") && !checkingStatus && (
+          <StatusCheckErrorButton statusMap={statusMap} settings={settings} />
+        )}
+
         {/* 미등록 입차 차량 안내 배너 */}
         {(() => {
           const enteredCount = cars.filter(c => statusMap[c.plate]?.status === "entered").length;
@@ -875,9 +880,16 @@ function CarStatusBadge({ s }: { s: { status: string; message: string; checkedAt
     ? new Date(s.checkedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
     : null;
   return (
-    <span className={clsx("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium", cls)}>
-      {label}
-      {time && <span className="opacity-60 font-normal">{s.isLast ? "기록" : ""} {time}</span>}
+    <span className="inline-flex flex-col gap-0.5">
+      <span className={clsx("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium", cls)}>
+        {label}
+        {time && <span className="opacity-60 font-normal">{s.isLast ? "기록" : ""} {time}</span>}
+      </span>
+      {s.status === "error" && s.message && (
+        <span className="text-xs text-red-400/70 font-normal px-0.5 max-w-[200px] truncate" title={s.message}>
+          {s.message}
+        </span>
+      )}
     </span>
   );
 }
@@ -920,6 +932,60 @@ function ClaudeCodeReportButton({ logs, settings }: {
         <p className="text-sm font-semibold text-red-400">등록 실패 차량 있음</p>
         <p className="text-xs text-red-300/60 mt-0.5">
           {failedLogs.map(l => l.plate).join(", ")}
+        </p>
+      </div>
+      <button
+        onClick={copyPrompt}
+        className="shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-900/70 text-red-300 border border-red-700/40 transition-colors"
+      >
+        {copied ? (
+          <><Check className="w-3.5 h-3.5 text-green-400" /><span className="text-green-400">복사됨</span></>
+        ) : (
+          <><Copy className="w-3.5 h-3.5" />Claude Code에 전달</>
+        )}
+      </button>
+    </div>
+  );
+}
+
+function StatusCheckErrorButton({ statusMap, settings }: {
+  statusMap: Record<string, { status: string; message: string; checkedAt?: number }>;
+  settings: { url: string; id: string; pw: string };
+}) {
+  const [copied, setCopied] = useState(false);
+  const errorEntries = Object.entries(statusMap).filter(([, s]) => s.status === "error");
+
+  function generatePrompt() {
+    const now = new Date().toLocaleString("ko-KR");
+    const lines = [
+      `## freeparking_1 현황 조회 오류 보고`,
+      ``,
+      `**발생 시간**: ${now}`,
+      `**사이트 URL**: ${settings.url || "(미설정)"}`,
+      `**관리자 ID**: ${settings.id || "(미설정)"}`,
+      ``,
+      `**오류 차량 목록**:`,
+      ...errorEntries.map(([plate, s]) => `- ${plate}: ${s.message}`),
+      ``,
+      `lib/check-status.ts의 HTTP fetch 기반 현황 조회가 실패했습니다.`,
+      `Playwright로 직접 디버깅 후 check-status.ts를 개선해주세요.`,
+      `(비밀번호는 직접 입력 필요)`,
+    ];
+    return lines.join("\n");
+  }
+
+  function copyPrompt() {
+    navigator.clipboard.writeText(generatePrompt());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }
+
+  return (
+    <div className="bg-red-950/30 border border-red-800/40 rounded-2xl px-4 py-3 flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-red-400">현황 조회 오류</p>
+        <p className="text-xs text-red-300/60 mt-0.5 break-all">
+          {errorEntries[0]?.[1].message || "알 수 없는 오류"}
         </p>
       </div>
       <button

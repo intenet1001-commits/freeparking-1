@@ -73,6 +73,7 @@ export default function Home() {
   const [isLocal, setIsLocal] = useState(true);
   const [statusMap, setStatusMap] = useState<Record<string, CarStatus>>({});
   const [checkingStatus, setCheckingStatus] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -126,6 +127,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
@@ -135,7 +142,7 @@ export default function Home() {
     const plate = newPlate.trim().toUpperCase();
     if (!plate) return;
     if (cars.find((c) => c.plate === plate)) {
-      alert("이미 등록된 차량번호입니다.");
+      setToast({ msg: '이미 등록된 차량번호입니다.', ok: false });
       return;
     }
     const { data, error } = await supabase
@@ -144,7 +151,7 @@ export default function Home() {
       .select()
       .single();
     if (error) {
-      alert(`추가 실패: ${error.message}`);
+      setToast({ msg: `추가 실패: ${error.message}`, ok: false });
       return;
     }
     if (data) setCars((prev) => [...prev, { ...data, selected: true }]);
@@ -198,7 +205,7 @@ export default function Home() {
     }
     setBulkText("");
     setShowBulk(false);
-    if (dupes.length > 0) alert(`이미 등록된 번호: ${dupes.join(", ")}`);
+    if (dupes.length > 0) setToast({ msg: `이미 등록된 번호: ${dupes.join(', ')}`, ok: false });
   }
 
   async function removeCar(id: string) {
@@ -230,23 +237,16 @@ export default function Home() {
       .from("fp_settings")
       .upsert({ id: 1, url: packedUrl, admin_id: settings.id, updated_at: new Date().toISOString() });
     if (error) {
-      alert(`저장 실패: ${error.message}`);
+      setToast({ msg: `저장 실패: ${error.message}`, ok: false });
       return;
     }
     // 저장 직후 읽어서 비밀번호 포함 여부 확인
     const { data: verify } = await supabase.from("fp_settings").select("url, admin_id").eq("id", 1).single();
+    let saved = false;
     if (verify?.url?.startsWith('{')) {
-      try {
-        const p = JSON.parse(verify.url);
-        if (p.pw) {
-          alert(`저장 완료 ✓\nURL: ${p.url}\nID: ${verify.admin_id}\n비밀번호: ${'•'.repeat(p.pw.length)} (저장됨)`);
-        } else {
-          alert('저장됨, 비밀번호 없음');
-        }
-      } catch { alert('저장됨 (파싱 오류)'); }
-    } else {
-      alert('저장됨');
+      try { saved = !!JSON.parse(verify.url).pw; } catch {}
     }
+    setToast({ msg: saved ? '설정 저장 완료 ✓' : '저장됨 (비밀번호 없음)', ok: saved });
     setShowSettings(false);
   }
 
@@ -397,7 +397,7 @@ export default function Home() {
   async function runRegistration() {
     const targets = cars.filter((c) => c.selected);
     if (targets.length === 0) {
-      alert("등록할 차량을 선택해주세요.");
+      setToast({ msg: '등록할 차량을 선택해주세요.', ok: false });
       return;
     }
     const runId = crypto.randomUUID();
@@ -526,6 +526,11 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-950 p-4 md:p-8">
+      {toast && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-medium text-white shadow-lg ${toast.ok ? 'bg-green-600' : 'bg-red-500'}`}>
+          {toast.msg}
+        </div>
+      )}
       <div className="max-w-2xl mx-auto space-y-6">
         {/* 헤더 */}
         <div className="flex items-center justify-between">

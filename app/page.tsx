@@ -74,6 +74,7 @@ export default function Home() {
   const [statusMap, setStatusMap] = useState<Record<string, CarStatus>>({});
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -513,6 +514,31 @@ export default function Home() {
           {toast.msg}
         </div>
       )}
+      {pendingDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPendingDeleteId(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-72 space-y-4" onClick={e => e.stopPropagation()}>
+            <p className="text-white text-sm font-medium text-center">차량을 삭제하시겠습니까?</p>
+            <p className="text-gray-400 text-xs text-center">
+              {cars.find(c => c.id === pendingDeleteId)?.plate}
+              {cars.find(c => c.id === pendingDeleteId)?.label ? ` · ${cars.find(c => c.id === pendingDeleteId)?.label}` : ''}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingDeleteId(null)}
+                className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm py-2 rounded-lg transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => { removeCar(pendingDeleteId); setPendingDeleteId(null); }}
+                className="flex-1 bg-red-600 hover:bg-red-500 text-white text-sm py-2 rounded-lg transition-colors"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="max-w-2xl mx-auto space-y-6">
         {/* 헤더 */}
         <div className="flex items-center justify-between">
@@ -737,7 +763,7 @@ export default function Home() {
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => removeCar(car.id)}
+                        onClick={() => setPendingDeleteId(car.id)}
                         className="text-gray-700 hover:text-red-400 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />

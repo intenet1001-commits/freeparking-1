@@ -667,14 +667,14 @@ export default function Home() {
         {/* 현황 조회 버튼 */}
         {cars.length > 0 && (
           <button
-            onClick={isLocal ? runStatusCheck : loadLastStatus}
+            onClick={runStatusCheck}
             disabled={checkingStatus}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl text-sm font-medium transition-all bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed border border-gray-700"
           >
             {checkingStatus ? (
               <><Loader2 className="w-4 h-4 animate-spin" />조회 중...</>
             ) : (
-              <><Search className="w-4 h-4" />{isLocal ? "실시간 현황 조회" : "마지막 기록 불러오기"}</>
+              <><Search className="w-4 h-4" />현황 조회</>
             )}
           </button>
         )}
@@ -704,35 +704,28 @@ export default function Home() {
         })()}
 
         {/* 실행 버튼 */}
-        {isLocal ? (
-          <button
-            onClick={runRegistration}
-            disabled={running || selectedCount === 0}
-            className={clsx(
-              "w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-sm transition-all",
-              running || selectedCount === 0
-                ? "bg-gray-800 text-gray-600 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30"
-            )}
-          >
-            {running ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                등록 중... ({selectedCount}대)
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4" />
-                무료주차 등록 실행 ({selectedCount}대)
-              </>
-            )}
-          </button>
-        ) : (
-          <div className="w-full flex flex-col items-center gap-1.5 py-3.5 rounded-2xl bg-gray-800/50 border border-gray-700/50">
-            <span className="text-sm font-semibold text-gray-500">자동등록 실행 불가</span>
-            <span className="text-xs text-gray-600">로컬(맥)에서 실행해주세요</span>
-          </div>
-        )}
+        <button
+          onClick={runRegistration}
+          disabled={running || selectedCount === 0}
+          className={clsx(
+            "w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-sm transition-all",
+            running || selectedCount === 0
+              ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+              : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30"
+          )}
+        >
+          {running ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              등록 중... ({selectedCount}대)
+            </>
+          ) : (
+            <>
+              <Play className="w-4 h-4" />
+              무료주차 등록 실행 ({selectedCount}대)
+            </>
+          )}
+        </button>
 
         {/* 실행 로그 */}
         {logs.length > 0 && (() => {

@@ -91,38 +91,27 @@ export default function Home() {
       .select("*")
       .order("created_at")
       .then(({ data }) => {
-        if (data) setCars(data.map((r) => ({ ...r, selected: true })));
+        if (data) setCars(data.filter(r => r.plate !== "__settings__").map((r) => ({ ...r, selected: true })));
       });
-    // Load settings from Supabase; migrate from localStorage if empty
-    // url 컬럼에 JSON {url, pw} 형태로 저장 (admin_pw 컬럼 존재 여부와 무관하게 동작)
+    // fp_cars의 plate='__settings__' 행에 설정 저장 (별도 테이블 불필요)
     supabase
-      .from("fp_settings")
-      .select("url, admin_id")
-      .eq("id", 1)
+      .from("fp_cars")
+      .select("label")
+      .eq("plate", "__settings__")
       .single()
       .then(({ data }) => {
-        if (data && (data.url || data.admin_id)) {
-          let loadedUrl = data.url ?? '';
-          let loadedPw = '';
-          if (loadedUrl.startsWith('{')) {
-            try { const p = JSON.parse(loadedUrl); loadedUrl = p.url ?? loadedUrl; loadedPw = p.pw ?? ''; } catch {}
-          }
-          if (!loadedPw) {
-            try { loadedPw = JSON.parse(localStorage.getItem('freeparking_settings') ?? '{}')?.pw ?? ''; } catch {}
-          }
-          setSettings({ url: loadedUrl, id: data.admin_id ?? '', pw: loadedPw });
-        } else {
-          // 로컬 설정 있으면 Supabase로 마이그레이션
-          const local = localStorage.getItem("freeparking_settings");
-          if (local) {
-            const parsed = JSON.parse(local);
-            setSettings(parsed);
-            const packed = JSON.stringify({ url: parsed.url, pw: parsed.pw });
-            supabase.from("fp_settings").upsert({
-              id: 1, url: packed, admin_id: parsed.id, updated_at: new Date().toISOString(),
-            });
-          }
+        if (data?.label) {
+          try {
+            const s = JSON.parse(data.label);
+            setSettings({ url: s.url ?? '', id: s.id ?? '', pw: s.pw ?? '' });
+            return;
+          } catch {}
         }
+        // Supabase에 없으면 localStorage 폴백
+        try {
+          const local = localStorage.getItem('freeparking_settings');
+          if (local) setSettings(JSON.parse(local));
+        } catch {}
       });
   }, []);
 
@@ -201,7 +190,7 @@ export default function Home() {
         );
       // Re-fetch full list
       const { data } = await supabase.from("fp_cars").select("*").order("created_at");
-      if (data) setCars(data.map((r) => ({ ...r, selected: true })));
+      if (data) setCars(data.filter(r => r.plate !== "__settings__").map((r) => ({ ...r, selected: true })));
     }
     setBulkText("");
     setShowBulk(false);
@@ -231,15 +220,12 @@ export default function Home() {
 
   async function saveSettings() {
     localStorage.setItem('freeparking_settings', JSON.stringify({ url: settings.url, id: settings.id, pw: settings.pw }));
-    // url 컬럼에 {url, pw}를 JSON으로 저장 → admin_pw 컬럼 없어도 다기기 동기화 가능
-    const packedUrl = JSON.stringify({ url: settings.url, pw: settings.pw });
+    // fp_cars의 plate='__settings__' 행에 설정 저장 (fp_settings 테이블 불필요)
     const { error } = await supabase
-      .from("fp_settings")
-      .upsert({ id: 1, url: packedUrl, admin_id: settings.id, updated_at: new Date().toISOString() });
+      .from("fp_cars")
+      .upsert({ plate: "__settings__", label: JSON.stringify({ url: settings.url, id: settings.id, pw: settings.pw }) }, { onConflict: "plate" });
     if (error) {
-      // fp_settings 테이블이 없으면 로컬에만 저장하고 성공 처리
-      setToast({ msg: '설정 저장 완료 ✓ (이 기기에만)', ok: true });
-      setShowSettings(false);
+      setToast({ msg: `저장 실패: ${error.message}`, ok: false });
       return;
     }
     setToast({ msg: '설정 저장 완료 ✓', ok: true });

@@ -100,7 +100,9 @@ export default function Home() {
       .single()
       .then(({ data }) => {
         if (data && (data.url || data.admin_id)) {
-          setSettings({ url: data.url, id: data.admin_id, pw: data.admin_pw });
+          // admin_pw 컬럼이 없거나 null이면 localStorage에서 보완
+          const localPw = (() => { try { return JSON.parse(localStorage.getItem('freeparking_settings') ?? '{}')?.pw ?? ''; } catch { return ''; } })();
+          setSettings({ url: data.url ?? '', id: data.admin_id ?? '', pw: data.admin_pw || localPw });
         } else {
           // 로컬 설정 있으면 Supabase로 마이그레이션
           const local = localStorage.getItem("freeparking_settings");
@@ -214,6 +216,7 @@ export default function Home() {
   }
 
   async function saveSettings() {
+    localStorage.setItem('freeparking_settings', JSON.stringify({ url: settings.url, id: settings.id, pw: settings.pw }));
     await supabase
       .from("fp_settings")
       .upsert({ id: 1, url: settings.url, admin_id: settings.id, admin_pw: settings.pw, updated_at: new Date().toISOString() });

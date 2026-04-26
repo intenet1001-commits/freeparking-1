@@ -5,6 +5,10 @@
  */
 
 export function extractSetCookies(headers: Headers): string[] {
+  // getSetCookie() is available in Node 18.14+ and correctly handles multiple Set-Cookie headers
+  if (typeof (headers as any).getSetCookie === 'function') {
+    return (headers as any).getSetCookie().map((v: string) => v.split(';')[0]);
+  }
   const cookies: string[] = [];
   headers.forEach((val, key) => {
     if (key.toLowerCase() === 'set-cookie') cookies.push(val.split(';')[0]);
@@ -61,37 +65,55 @@ export async function ajparkLogin(
   let cookieJar = '';
   const baseUrl = buildBaseUrl(url);
 
-  // 1. GET login page → session cookie + form action
-  const p1 = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': UA } });
+  const commonHeaders = {
+    'User-Agent': UA,
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+  };
+
+  // 1. GET login page → session cookie + form action + hidden fields
+  const p1 = await fetch(url, { redirect: 'follow', headers: commonHeaders });
   cookieJar = mergeCookies(cookieJar, extractSetCookies(p1.headers));
   const loginHtml = await p1.text();
 
-  // Parse form action (e.g. "login;jsessionid=XXX")
+  // Parse form action (e.g. "login;jsessionid=XXX") and hidden inputs
   const formActionRaw = loginHtml.match(/<form[^>]+action=['"]([^'"]+)['"]/i)?.[1] ?? 'login';
   const loginAction = resolveUrl(p1.url || url, formActionRaw);
+  const hiddenFields = parseHiddenInputs(loginHtml);
 
   // AJPark: j_username = Base64(id), j_password = plain
   const j_username = Buffer.from(adminId).toString('base64');
 
-  // 2. POST login
-  const p2 = await fetch(loginAction, {
+  // 2. POST login with manual redirect to collect Set-Cookie from each redirect step
+  let resp = await fetch(loginAction, {
     method: 'POST',
-    redirect: 'follow',
+    redirect: 'manual',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       Cookie: cookieJar,
       Referer: p1.url || url,
-      'User-Agent': UA,
       Origin: baseUrl,
+      ...commonHeaders,
     },
-    body: new URLSearchParams({
-      j_username,
-      j_password: adminPw,
-    }).toString(),
+    body: new URLSearchParams({ ...hiddenFields, j_username, j_password: adminPw }).toString(),
   });
-  cookieJar = mergeCookies(cookieJar, extractSetCookies(p2.headers));
-  const p2Html = await p2.text();
-  const p2Url = p2.url || loginAction;
+  cookieJar = mergeCookies(cookieJar, extractSetCookies(resp.headers));
+
+  // Follow redirects manually so we can collect cookies at every hop
+  let currentUrl = loginAction;
+  for (let i = 0; i < 10 && resp.status >= 300 && resp.status < 400; i++) {
+    const location = resp.headers.get('location');
+    if (!location) break;
+    currentUrl = resolveUrl(currentUrl, location);
+    resp = await fetch(currentUrl, {
+      redirect: 'manual',
+      headers: { Cookie: cookieJar, Referer: currentUrl, ...commonHeaders },
+    });
+    cookieJar = mergeCookies(cookieJar, extractSetCookies(resp.headers));
+  }
+
+  const p2Html = await resp.text();
+  const p2Url = currentUrl;
 
   if (!p2Url.includes('carSearch') && !p2Html.includes('carSearch')) {
     return { ok: false, message: '로그인 실패 (URL/아이디/비밀번호 확인)' };

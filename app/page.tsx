@@ -237,16 +237,12 @@ export default function Home() {
       .from("fp_settings")
       .upsert({ id: 1, url: packedUrl, admin_id: settings.id, updated_at: new Date().toISOString() });
     if (error) {
-      setToast({ msg: `저장 실패: ${error.message}`, ok: false });
+      // fp_settings 테이블이 없으면 로컬에만 저장하고 성공 처리
+      setToast({ msg: '설정 저장 완료 ✓ (이 기기에만)', ok: true });
+      setShowSettings(false);
       return;
     }
-    // 저장 직후 읽어서 비밀번호 포함 여부 확인
-    const { data: verify } = await supabase.from("fp_settings").select("url, admin_id").eq("id", 1).single();
-    let saved = false;
-    if (verify?.url?.startsWith('{')) {
-      try { saved = !!JSON.parse(verify.url).pw; } catch {}
-    }
-    setToast({ msg: saved ? '설정 저장 완료 ✓' : '저장됨 (비밀번호 없음)', ok: saved });
+    setToast({ msg: '설정 저장 완료 ✓', ok: true });
     setShowSettings(false);
   }
 

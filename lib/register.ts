@@ -207,10 +207,14 @@ export async function registerCars(
         (await btn.isDisabled()) || (await btn.getAttribute('disabled')) !== null;
 
       if (isDisabled) {
-        if (bodyText.includes('적용내역') || bodyText.includes('승인')) {
-          emit({ plate, status: 'skipped', message: `이미 오늘 ${btnLabel} 처리됨` });
-        } else {
+        // 잔여 매수 확인 — 버튼 value에서 "(숫자)" 추출 (예: "종일권(주말) (24)")
+        // 페이지 이력에 '승인'/'적용'이 항상 존재하므로 텍스트 비교는 신뢰 불가
+        const quotaMatch = btnValue.match(/\((\d+)\)\s*$/);
+        const quota = quotaMatch ? parseInt(quotaMatch[1]) : null;
+        if (quota === 0) {
           emit({ plate, status: 'failed', message: `${btnLabel} 잔여 매수 없음` });
+        } else {
+          emit({ plate, status: 'skipped', message: `이미 오늘 ${btnLabel} 처리됨` });
         }
         continue;
       }
@@ -218,16 +222,19 @@ export async function registerCars(
       await btn.click();
       await page.waitForTimeout(1500);
 
-      const bodyAfter: string = await page.innerText('body');
       const display =
         candidates.length > 0 && chosenIdx < candidates.length
           ? candidates[chosenIdx].plate
           : plate;
 
-      if (bodyAfter.includes('승인') || bodyAfter.includes('적용')) {
+      // 버튼이 disabled로 바뀌었으면 등록 성공 (페이지에 이미 '승인'/'적용' 이력이 있어 텍스트 비교는 불가)
+      const isDisabledAfter: boolean =
+        (await btn.isDisabled()) || (await btn.getAttribute('disabled')) !== null;
+
+      if (isDisabledAfter) {
         emit({ plate, status: 'success', message: `${display} ${btnLabel} 등록 완료` });
       } else {
-        emit({ plate, status: 'success', message: `${btnLabel} 처리 완료 (결과 확인 필요)` });
+        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (버튼 미변화 — 수기 확인 필요)` });
       }
     } catch (e) {
       const msg = String(e);

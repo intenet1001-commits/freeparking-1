@@ -73,10 +73,11 @@ export async function ajparkLogin(
   // AJPark: j_username = Base64(id), j_password = plain
   const j_username = Buffer.from(adminId).toString('base64');
 
-  // 2. POST login
+  // 2. POST login — redirect: 'manual' so we can forward cookies on each hop
+  // fetch's redirect:'follow' drops the Cookie header on redirects, breaking session
   const p2 = await fetch(loginAction, {
     method: 'POST',
-    redirect: 'follow',
+    redirect: 'manual',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       Cookie: cookieJar,
@@ -90,19 +91,57 @@ export async function ajparkLogin(
     }).toString(),
   });
   cookieJar = mergeCookies(cookieJar, extractSetCookies(p2.headers));
-  const p2Html = await p2.text();
-  const p2Url = p2.url || loginAction;
 
-  if (!p2Url.includes('carSearch') && !p2Html.includes('carSearch')) {
-    return { ok: false, message: '로그인 실패 (URL/아이디/비밀번호 확인)' };
+  if (p2.status !== 302 && p2.status !== 301 && p2.status !== 303) {
+    const body = await p2.text();
+    if (body.includes('아이디') || body.includes('비밀번호') || body.includes('login')) {
+      return { ok: false, message: '로그인 실패 (URL/아이디/비밀번호 확인)' };
+    }
   }
 
-  const carSearchUrl = p2Url.includes('carSearch')
-    ? p2Url
-    : (() => {
-        const m = p2Html.match(/href=['"]([^'"]*carSearch[^'"]*)['"]/i);
-        return m ? resolveUrl(baseUrl, m[1]) : `${baseUrl}/carSearch.cs`;
-      })();
+  // 3. Follow redirects manually, forwarding cookies on each hop
+  // Actual chain: POST /login → 302 /main/index → 302 /discount/carSearch.cs?userID=...
+  let currentUrl = loginAction;
+  let currentResp: Response = p2;
+  let carSearchUrl = '';
+
+  for (let hop = 0; hop < 6; hop++) {
+    const status = currentResp.status;
+    if (status === 301 || status === 302 || status === 303 || status === 307 || status === 308) {
+      const rawLocation = currentResp.headers.get('location') ?? '';
+      if (!rawLocation) break;
+      const nextUrl = new URL(resolveUrl(currentUrl, rawLocation)).href;
+
+      if (nextUrl.includes('carSearch')) {
+        carSearchUrl = nextUrl;
+        break;
+      }
+
+      currentUrl = nextUrl;
+      currentResp = await fetch(nextUrl, {
+        redirect: 'manual',
+        headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: currentUrl },
+      });
+      cookieJar = mergeCookies(cookieJar, extractSetCookies(currentResp.headers));
+    } else if (status === 200) {
+      if (currentUrl.includes('carSearch')) {
+        carSearchUrl = currentUrl;
+      } else {
+        const html = await currentResp.text();
+        const m = html.match(/href=['"]([^'"]*carSearch[^'"]*)['"]/i);
+        carSearchUrl = m
+          ? resolveUrl(baseUrl, m[1])
+          : `${baseUrl}/discount/carSearch.cs?userID=${adminId}&contextPath=`;
+      }
+      break;
+    } else {
+      break;
+    }
+  }
+
+  if (!carSearchUrl) {
+    return { ok: false, message: '로그인 실패 (URL/아이디/비밀번호 확인)' };
+  }
 
   return { ok: true, cookieJar, carSearchUrl };
 }

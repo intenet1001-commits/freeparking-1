@@ -97,7 +97,7 @@ export async function registerCars(
     await page.fill("input[name='j_username_form']", adminId);
     await page.fill("input[name='j_password_form']", adminPw);
     await page.click("a:has-text('로그인')");
-    await page.waitForTimeout(3000);
+    await page.waitForURL('**/carSearch**', { timeout: 15000 }).catch(() => {});
 
     if (!page.url().includes('carSearch')) {
       for (const car of cars) {
@@ -123,8 +123,10 @@ export async function registerCars(
 
     try {
       await page.fill('#carNumber', last4);
-      await page.click('input[type=submit]');
-      await page.waitForTimeout(2000);
+      await Promise.all([
+        page.waitForNavigation({ timeout: 10000, waitUntil: 'domcontentloaded' }).catch(() => {}),
+        page.click('input[type=submit]'),
+      ]);
 
       const bodyText: string = await page.innerText('body');
       const content: string = await page.content();
@@ -219,22 +221,24 @@ export async function registerCars(
         continue;
       }
 
-      await btn.click();
-      await page.waitForTimeout(1500);
-
       const display =
         candidates.length > 0 && chosenIdx < candidates.length
           ? candidates[chosenIdx].plate
           : plate;
 
-      // 버튼이 disabled로 바뀌었으면 등록 성공 (페이지에 이미 '승인'/'적용' 이력이 있어 텍스트 비교는 불가)
-      const isDisabledAfter: boolean =
-        (await btn.isDisabled()) || (await btn.getAttribute('disabled')) !== null;
+      // MultipleDiscountApply(): confirm 수락 → location.href 이동 (discountApplyProc.cs)
+      // 버튼 클릭 후 페이지 이동 여부로 성공 판정 (stale ElementHandle 방지)
+      const prevUrl = page.url();
+      await Promise.all([
+        page.waitForNavigation({ timeout: 10000, waitUntil: 'domcontentloaded' }).catch(() => {}),
+        btn.click(),
+      ]);
+      const afterUrl = page.url();
 
-      if (isDisabledAfter) {
+      if (afterUrl !== prevUrl) {
         emit({ plate, status: 'success', message: `${display} ${btnLabel} 등록 완료` });
       } else {
-        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (버튼 미변화 — 수기 확인 필요)` });
+        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (confirm 미수락 또는 서버 오류)` });
       }
     } catch (e) {
       const msg = String(e);

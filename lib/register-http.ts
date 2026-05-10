@@ -1,5 +1,25 @@
 import { CarInput, EmitFn, getLast4, normalizePlate, extractCandidates } from './register';
-import { ajparkLogin, searchCar, mergeCookies, extractSetCookies, resolveUrl, parseHiddenInputs, UA } from './ajpark-http';
+import { ajparkLogin, searchCar, mergeCookies, extractSetCookies, buildBaseUrl, UA } from './ajpark-http';
+
+// onclick="javascript:MultipleDiscountApply('0','pKey','dCode','dName','carNum','dKind','count',remark)"
+// 인자를 배열로 파싱 (따옴표 제거, 비문자열 항목은 그대로 반환)
+function parseOnclickArgs(btnTag: string): string[] {
+  const m = btnTag.match(/MultipleDiscountApply\((.+?)\)\s*;/i);
+  if (!m) return [];
+  const raw = m[1];
+  const args: string[] = [];
+  let cur = '';
+  let inQ = false;
+  let qCh = '';
+  for (const ch of raw) {
+    if (!inQ && (ch === "'" || ch === '"')) { inQ = true; qCh = ch; }
+    else if (inQ && ch === qCh) { inQ = false; }
+    else if (!inQ && ch === ',') { args.push(cur.trim()); cur = ''; }
+    else { cur += ch; }
+  }
+  args.push(cur.trim());
+  return args;
+}
 
 export async function registerCarsHttp(
   url: string,
@@ -29,6 +49,7 @@ export async function registerCarsHttp(
       const result = await searchCar(carSearchUrl, cookieJar, last4);
       cookieJar = result.cookieJar;
       const html = result.html;
+      const finalUrl = result.finalUrl; // discountApply.cs?pKey=...
       const bodyText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
       if (!bodyText.includes('입차된 차량') && !bodyText.includes('차량번호:')) {
@@ -59,44 +80,58 @@ export async function registerCarsHttp(
       }
 
       const btnTag = btnMatches[chosenIdx < btnMatches.length ? chosenIdx : 0]?.[0] ?? '';
-      const btnValue = btnTag.match(/value=['"]([^'"]+)['"]/i)?.[1] ?? '종일권';
-      const btnLabel = btnValue.split('(')[0].trim();
+      const btnValue = (btnTag.match(/value=['"]([^'"]+)['"]/i)?.[1] ?? '종일권').replace(/&nbsp;/gi, ' ');
+      const btnLabel = btnValue.replace(/\s*\(\d+\)\s*$/, '').trim(); // "종일권(주말) (20)" → "종일권(주말)"
       const isDisabled = /disabled/i.test(btnTag);
 
       if (isDisabled) {
-        if (bodyText.includes('적용내역') || bodyText.includes('승인')) {
-          emit({ plate, status: 'skipped', message: `이미 오늘 ${btnLabel} 처리됨` });
-        } else {
+        // register.ts와 동일: 버튼 value의 잔여 매수로 판단
+        const quotaMatch = btnValue.match(/\((\d+)\)\s*$/);
+        const quota = quotaMatch ? parseInt(quotaMatch[1]) : null;
+        if (quota === 0) {
           emit({ plate, status: 'failed', message: `${btnLabel} 잔여 매수 없음` });
+        } else {
+          emit({ plate, status: 'skipped', message: `이미 오늘 ${btnLabel} 처리됨` });
         }
         continue;
       }
 
-      const btnName = btnTag.match(/name=['"]([^'"]+)['"]/i)?.[1];
-      const formActionRaw = html.match(/<form[^>]+action=['"]([^'"]+)['"]/i)?.[1] ?? '';
-      const submitAction = formActionRaw ? resolveUrl(carSearchUrl, formActionRaw) : carSearchUrl;
-      const formData = new URLSearchParams({ ...parseHiddenInputs(html), carNumber: last4 });
-      if (btnName) formData.set(btnName, btnValue);
+      // pKey: carSearch POST의 302 리다이렉트 목적지 URL에서 추출
+      const pKeyMatch = finalUrl.match(/[?&]pKey=([^&]+)/);
+      const pKey = pKeyMatch ? decodeURIComponent(pKeyMatch[1]) : '';
+      if (!pKey) {
+        emit({ plate, status: 'failed', message: `pKey 추출 실패 (finalUrl: ${finalUrl.slice(0, 80)})` });
+        continue;
+      }
 
-      const clickResp = await fetch(submitAction, {
-        method: 'POST',
+      // dCode, dKind: 버튼 onclick MultipleDiscountApply() 인자에서 추출
+      const onclickArgs = parseOnclickArgs(btnTag);
+      const dCode = onclickArgs[2] ?? '';
+      const dKind = onclickArgs[5] ?? '매수차감';
+
+      const display = candidates.length > 0 && chosenIdx < candidates.length ? candidates[chosenIdx].plate : plate;
+
+      // 실제 등록: discountApplyProcRepeat.cs (GET 방식)
+      const base = buildBaseUrl(finalUrl);
+      const applyUrl = `${base}/discount/discountApplyProcRepeat.cs?pKey=${encodeURIComponent(pKey)}&dCode=${encodeURIComponent(dCode)}&dKind=${encodeURIComponent(dKind)}&fDays=&remark=&repeat=1`;
+
+      const clickResp = await fetch(applyUrl, {
+        method: 'GET',
         redirect: 'follow',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
           Cookie: cookieJar,
-          Referer: carSearchUrl,
+          Referer: finalUrl,
           'User-Agent': UA,
         },
-        body: formData.toString(),
       });
       cookieJar = mergeCookies(cookieJar, extractSetCookies(clickResp.headers));
       const afterText = (await clickResp.text()).replace(/<[^>]+>/g, ' ');
-      const display = candidates.length > 0 && chosenIdx < candidates.length ? candidates[chosenIdx].plate : plate;
 
-      if (afterText.includes('승인') || afterText.includes('적용') || afterText.includes('완료')) {
+      // 성공: 리다이렉트 후 URL에 month= 포함 (정상 처리 결과 페이지)
+      if (clickResp.url.includes('month=') || afterText.includes('승인') || afterText.includes('완료')) {
         emit({ plate, status: 'success', message: `${display} ${btnLabel} 등록 완료` });
       } else {
-        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (서버 응답 확인 필요)` });
+        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (응답: ${afterText.slice(0, 60).trim()})` });
       }
     } catch (e) {
       const msg = `HTTP 오류: ${String(e).slice(0, 80)}`;

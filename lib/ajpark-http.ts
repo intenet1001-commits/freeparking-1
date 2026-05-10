@@ -150,7 +150,7 @@ export async function searchCar(
   carSearchUrl: string,
   cookieJar: string,
   last4: string
-): Promise<{ html: string; cookieJar: string }> {
+): Promise<{ html: string; cookieJar: string; finalUrl: string }> {
   // GET carSearch page for form structure
   const csPage = await fetch(carSearchUrl, {
     headers: { Cookie: cookieJar, 'User-Agent': UA },
@@ -164,19 +164,41 @@ export async function searchCar(
     ? resolveUrl(carSearchUrl, formActionRaw)
     : carSearchUrl;
   const csHidden = parseHiddenInputs(csHtml);
+  const today = new Date().toISOString().slice(0, 10);
 
-  const resp = await fetch(searchAction, {
+  // redirect:'manual' to capture cookies from the 302 response
+  const postResp = await fetch(searchAction, {
     method: 'POST',
-    redirect: 'follow',
+    redirect: 'manual',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       Cookie: cookieJar,
       Referer: carSearchUrl,
       'User-Agent': UA,
     },
-    body: new URLSearchParams({ ...csHidden, carNumber: last4 }).toString(),
+    body: new URLSearchParams({ ...csHidden, carNumber: last4, from: today, fromHH: '00' }).toString(),
   });
-  cookieJar = mergeCookies(cookieJar, extractSetCookies(resp.headers));
-  const html = await resp.text();
-  return { html, cookieJar };
+  cookieJar = mergeCookies(cookieJar, extractSetCookies(postResp.headers));
+
+  // Follow 302 → discountApply.cs?pKey=...
+  let html = '';
+  let finalUrl = carSearchUrl;
+
+  if (postResp.status >= 300 && postResp.status < 400) {
+    const location = postResp.headers.get('location') ?? '';
+    if (location) {
+      finalUrl = new URL(resolveUrl(searchAction, location)).href;
+      const getResp = await fetch(finalUrl, {
+        redirect: 'follow',
+        headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: searchAction },
+      });
+      cookieJar = mergeCookies(cookieJar, extractSetCookies(getResp.headers));
+      html = await getResp.text();
+      finalUrl = getResp.url;
+    }
+  } else {
+    html = await postResp.text();
+  }
+
+  return { html, cookieJar, finalUrl };
 }

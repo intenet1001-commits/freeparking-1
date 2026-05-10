@@ -39,7 +39,6 @@ export async function registerCarsHttp(
       const candidates = extractCandidates(html);
       const btnRe = /input[^>]+type=["']?button["']?[^>]+(?:id=['"][^'"]*BTN_종일[^'"]*['"]|value=['"][^'"]*종일[^'"]*['"])[^>]*/gi;
       const btnMatches = [...html.matchAll(btnRe)];
-      const isDisabled = btnMatches.some(m => /disabled/i.test(m[0]));
 
       if (candidates.length === 0 && btnMatches.length === 0) {
         emit({ plate, status: 'not_entered', message: '입차 없음' });
@@ -62,6 +61,7 @@ export async function registerCarsHttp(
       const btnTag = btnMatches[chosenIdx < btnMatches.length ? chosenIdx : 0]?.[0] ?? '';
       const btnValue = btnTag.match(/value=['"]([^'"]+)['"]/i)?.[1] ?? '종일권';
       const btnLabel = btnValue.split('(')[0].trim();
+      const isDisabled = /disabled/i.test(btnTag);
 
       if (isDisabled) {
         if (bodyText.includes('적용내역') || bodyText.includes('승인')) {
@@ -93,10 +93,10 @@ export async function registerCarsHttp(
       const afterText = (await clickResp.text()).replace(/<[^>]+>/g, ' ');
       const display = candidates.length > 0 && chosenIdx < candidates.length ? candidates[chosenIdx].plate : plate;
 
-      if (afterText.includes('승인') || afterText.includes('적용')) {
+      if (afterText.includes('승인') || afterText.includes('적용') || afterText.includes('완료')) {
         emit({ plate, status: 'success', message: `${display} ${btnLabel} 등록 완료` });
       } else {
-        emit({ plate, status: 'success', message: `${btnLabel} 처리 완료 (결과 확인 필요)` });
+        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (서버 응답 확인 필요)` });
       }
     } catch (e) {
       const msg = `HTTP 오류: ${String(e).slice(0, 80)}`;

@@ -343,12 +343,14 @@ export default function Home() {
 
   function applyLogUpdate(data: Record<string, unknown>) {
     if (!data.plate) return;
+    const plate = data.plate as string;
+    const logStatus = data.status as LogEntry["status"];
     setLogs((prev) =>
       prev.map((l) =>
-        l.plate === data.plate
+        l.plate === plate
           ? {
               ...l,
-              status: data.status as LogEntry["status"],
+              status: logStatus,
               message: data.message as string,
               candidates: data.candidates as Candidate[] | undefined,
               ts: Date.now(),
@@ -356,6 +358,13 @@ export default function Home() {
           : l
       )
     );
+    // 등록 완료 시 statusMap 즉시 갱신 (현황 조회 없이 배지 업데이트)
+    if (logStatus === 'success' || logStatus === 'skipped' || logStatus === 'duplicate') {
+      setStatusMap((prev) => ({
+        ...prev,
+        [plate]: { status: 'registered', message: data.message as string, checkedAt: Date.now() },
+      }));
+    }
   }
 
   function copyLogs() {

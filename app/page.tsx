@@ -78,6 +78,7 @@ export default function Home() {
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const initialStatusLoaded = useRef(false);
 
   useEffect(() => {
     if (localStorage.getItem("fp_authed") === "1") setAuthed(true);
@@ -129,6 +130,15 @@ export default function Home() {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [logs]);
+
+  // 차량 목록 첫 로드 시 fp_logs에서 마지막 상태 복원 (배지 초기화)
+  useEffect(() => {
+    if (cars.length > 0 && !initialStatusLoaded.current) {
+      initialStatusLoaded.current = true;
+      loadLastStatus();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cars.length]);
 
   async function addCar() {
     const plate = newPlate.trim().toUpperCase();
@@ -424,7 +434,7 @@ export default function Home() {
       console.error(e);
     } finally {
       setRunning(false);
-      // Save logs to Supabase
+      // Save logs to Supabase → 완료 후 배지 갱신
       setLogs((currentLogs) => {
         const logsToSave = currentLogs.filter(
           (l) => !["pending", "running"].includes(l.status)
@@ -443,6 +453,8 @@ export default function Home() {
             )
             .then(({ error }) => {
               if (error) console.error("로그 저장 실패:", error.message);
+              // Supabase insert 후 fp_logs에서 최신 상태 로드 → 배지 확정 갱신
+              setTimeout(() => loadLastStatus(), 300);
             });
         }
         return currentLogs;
@@ -475,6 +487,9 @@ export default function Home() {
       await readSSE(resp, applyLogUpdate);
     } catch (e) {
       console.error(e);
+    } finally {
+      // 선택 등록 완료 후 배지 갱신
+      setTimeout(() => loadLastStatus(), 300);
     }
   }
 

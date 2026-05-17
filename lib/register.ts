@@ -136,7 +136,43 @@ export async function registerCars(
         continue;
       }
 
-      const candidates = extractCandidates(content);
+      // 다중 차량 목록 페이지 처리 (동일 last4 복수 차량 → 302 없이 carSearch.cs 200 응답)
+      // 각 행: <tr onclick="onclick_Car('pKey')"> — 해당 차량 클릭 후 discountApply.cs로 이동
+      if (page.url().includes('carSearch') && content.includes('onclick_Car')) {
+        const listCandidates = extractCandidates(content);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rows: any[] = await page.$$('tr[onclick*="onclick_Car"]');
+
+        let targetRow = null;
+        // 선택 인덱스 우선
+        if (plate in selectedJson && Number(selectedJson[plate]) < rows.length) {
+          targetRow = rows[Number(selectedJson[plate])];
+        } else if (normPlate) {
+          // 이미지 src의 번호판으로 자동 매칭
+          for (const row of rows) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const img: any = await row.$('img');
+            if (img) {
+              const src: string = (await img.getAttribute('src')) ?? '';
+              const imgPlate = src.replace(/\.[^.]+$/, '').split('_').pop() ?? '';
+              if (normalizePlate(imgPlate) === normPlate) { targetRow = row; break; }
+            }
+          }
+        }
+        if (!targetRow && rows.length === 1) targetRow = rows[0];
+
+        if (!targetRow) {
+          emit({ plate, status: 'needs_selection', message: '여러 차량 발견 — 선택 필요', candidates: listCandidates.slice(0, 4) });
+          continue;
+        }
+
+        await Promise.all([
+          page.waitForNavigation({ timeout: 10000, waitUntil: 'domcontentloaded' }).catch(() => {}),
+          targetRow.click(),
+        ]);
+      }
+
+      const candidates = extractCandidates(await page.content());
 
       // 종일권 버튼 조회
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

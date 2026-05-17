@@ -2,7 +2,6 @@ import { CarInput, EmitFn, getLast4, normalizePlate, extractCandidates } from '.
 import { ajparkLogin, searchCar, mergeCookies, extractSetCookies, buildBaseUrl, UA } from './ajpark-http';
 
 // onclick="javascript:MultipleDiscountApply('0','pKey','dCode','dName','carNum','dKind','count',remark)"
-// 인자를 배열로 파싱 (따옴표 제거, 비문자열 항목은 그대로 반환)
 function parseOnclickArgs(btnTag: string): string[] {
   const m = btnTag.match(/MultipleDiscountApply\((.+?)\)\s*;/i);
   if (!m) return [];
@@ -19,6 +18,32 @@ function parseOnclickArgs(btnTag: string): string[] {
   }
   args.push(cur.trim());
   return args;
+}
+
+// 다중 차량 목록 페이지(carSearch POST 200 응답)에서 특정 차량의 pKey 추출
+// 행 구조: <tr onclick="javascript:onclick_Car('pKey')">...<img src="/Images/CH_DATE_PLATE.JPG">...</tr>
+function extractPKeyFromCarList(html: string, targetPlate: string, selectedIdx?: number): string {
+  const norm = targetPlate.replace(/[\s\-]/g, '').toUpperCase();
+  const rowRe = /<tr[^>]+onclick=["'][^"']*onclick_Car\('([^']+)'\)[^"']*["'][^>]*>([\s\S]*?)<\/tr>/gi;
+  const rows: { pKey: string; rowHtml: string }[] = [];
+  for (const m of html.matchAll(rowRe)) {
+    rows.push({ pKey: m[1], rowHtml: m[2] });
+  }
+  // 사용자 선택 인덱스 우선
+  if (selectedIdx !== undefined && selectedIdx < rows.length) return rows[selectedIdx].pKey;
+  // 이미지 경로에서 번호판 매칭: /Images/CH0_20260517101717_228머7491.JPG
+  if (norm) {
+    for (const { pKey, rowHtml } of rows) {
+      const imgSrc = rowHtml.match(/\/Images\/[^"'\s]+/i)?.[0] ?? '';
+      const imgPlate = imgSrc.replace(/\.[^.]+$/, '').split('_').pop() ?? '';
+      if (imgPlate.replace(/[\s\-]/g, '').toUpperCase() === norm) return pKey;
+      // 텍스트 fallback
+      if (rowHtml.replace(/<[^>]+>/g, ' ').replace(/[\s\-]/g, '').toUpperCase().includes(norm)) return pKey;
+    }
+  }
+  // 단일 행이면 자동 선택
+  if (rows.length === 1) return rows[0].pKey;
+  return '';
 }
 
 export async function registerCarsHttp(
@@ -48,13 +73,46 @@ export async function registerCarsHttp(
     try {
       const result = await searchCar(carSearchUrl, cookieJar, last4);
       cookieJar = result.cookieJar;
-      const html = result.html;
-      const finalUrl = result.finalUrl; // discountApply.cs?pKey=...
+      let html = result.html;
+      let finalUrl = result.finalUrl;
       const bodyText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
       if (!bodyText.includes('입차된 차량') && !bodyText.includes('차량번호:')) {
         emit({ plate, status: 'not_entered', message: '입차 없음' });
         continue;
+      }
+
+      // 다중 차량 목록 페이지 처리
+      // carSearch POST가 200을 반환하면(동일 last4 복수 차량) finalUrl에 pKey가 없고 onclick_Car가 존재
+      if (!finalUrl.includes('pKey') && html.includes('onclick_Car')) {
+        const listCandidates = extractCandidates(html);
+
+        // 선택 인덱스 결정 (selectedJson → 번호판 자동 매칭 순)
+        let selectedIdx: number | undefined;
+        if (plate in selectedJson) {
+          selectedIdx = Number(selectedJson[plate]);
+        } else if (normPlate) {
+          for (let i = 0; i < listCandidates.length; i++) {
+            if (normalizePlate(listCandidates[i].plate) === normPlate) { selectedIdx = i; break; }
+          }
+        }
+
+        const listPKey = extractPKeyFromCarList(html, plate, selectedIdx);
+        if (!listPKey) {
+          // 자동 선택 불가 — 사용자에게 선택 요청
+          emit({ plate, status: 'needs_selection', message: '여러 차량 발견 — 선택 필요', candidates: listCandidates.slice(0, 4) });
+          continue;
+        }
+
+        // 선택된 차량의 discountApply 페이지로 이동
+        const discountUrl = `${buildBaseUrl(finalUrl)}/discount/discountApply.cs?pKey=${encodeURIComponent(listPKey)}`;
+        const discResp = await fetch(discountUrl, {
+          redirect: 'follow',
+          headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: finalUrl },
+        });
+        cookieJar = mergeCookies(cookieJar, extractSetCookies(discResp.headers));
+        html = await discResp.text();
+        finalUrl = discResp.url;
       }
 
       const candidates = extractCandidates(html);
@@ -81,11 +139,10 @@ export async function registerCarsHttp(
 
       const btnTag = btnMatches[chosenIdx < btnMatches.length ? chosenIdx : 0]?.[0] ?? '';
       const btnValue = (btnTag.match(/value=['"]([^'"]+)['"]/i)?.[1] ?? '종일권').replace(/&nbsp;/gi, ' ');
-      const btnLabel = btnValue.replace(/\s*\(\d+\)\s*$/, '').trim(); // "종일권(주말) (20)" → "종일권(주말)"
+      const btnLabel = btnValue.replace(/\s*\(\d+\)\s*$/, '').trim();
       const isDisabled = /disabled/i.test(btnTag);
 
       if (isDisabled) {
-        // register.ts와 동일: 버튼 value의 잔여 매수로 판단
         const quotaMatch = btnValue.match(/\((\d+)\)\s*$/);
         const quota = quotaMatch ? parseInt(quotaMatch[1]) : null;
         if (quota === 0) {
@@ -96,17 +153,13 @@ export async function registerCarsHttp(
         continue;
       }
 
-      // dCode, dKind, pKey: 버튼 onclick MultipleDiscountApply() 인자에서 추출
-      // onclick: MultipleDiscountApply('0','pKey','dCode','dName','carNum','dKind','count',remark)
+      // pKey: finalUrl(discountApply.cs?pKey=...)에서 추출, 실패 시 onclick 인자(index 1)에서 추출
       const onclickArgs = parseOnclickArgs(btnTag);
-      const pKeyFromOnclick = onclickArgs[1] ?? '';
       const dCode = onclickArgs[2] ?? '';
       const dKind = onclickArgs[5] ?? '매수차감';
 
-      // pKey: finalUrl(discountApply.cs?pKey=...)에서 추출, 실패 시 onclick 인자에서 추출
-      // POST 200 응답(동일 last4 다중 차량) 시 finalUrl에 pKey 없음 → onclick 인자 사용
       const pKeyFromUrl = finalUrl.match(/[?&]pKey=([^&]+)/);
-      const pKey = pKeyFromUrl ? decodeURIComponent(pKeyFromUrl[1]) : pKeyFromOnclick;
+      const pKey = pKeyFromUrl ? decodeURIComponent(pKeyFromUrl[1]) : (onclickArgs[1] ?? '');
       if (!pKey) {
         emit({ plate, status: 'failed', message: `pKey 추출 실패 (finalUrl: ${finalUrl.slice(0, 80)})` });
         continue;
@@ -130,7 +183,7 @@ export async function registerCarsHttp(
       cookieJar = mergeCookies(cookieJar, extractSetCookies(clickResp.headers));
       const afterText = (await clickResp.text()).replace(/<[^>]+>/g, ' ');
 
-      // 성공: 리다이렉트 후 URL에 month= 포함 (정상 처리 결과 페이지)
+      // 성공: 리다이렉트 후 URL에 month= 포함 또는 응답 텍스트에 승인/완료
       if (clickResp.url.includes('month=') || afterText.includes('승인') || afterText.includes('완료')) {
         emit({ plate, status: 'success', message: `${display} ${btnLabel} 등록 완료` });
       } else {

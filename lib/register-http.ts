@@ -21,29 +21,28 @@ function parseOnclickArgs(btnTag: string): string[] {
 }
 
 // 다중 차량 목록 페이지(carSearch POST 200 응답)에서 특정 차량의 pKey 추출
-// 행 구조: <tr onclick="javascript:onclick_Car('pKey')">...<img src="/Images/CH_DATE_PLATE.JPG">...</tr>
+// 전략: onclick_Car('pKey')와 이미지 경로를 각각 단순 추출 후 순서로 매칭
 function extractPKeyFromCarList(html: string, targetPlate: string, selectedIdx?: number): string {
+  // 1) pKey 목록: onclick_Car('...') 순서대로 추출
+  const pKeys = [...html.matchAll(/onclick_Car\('([^']+)'\)/gi)].map(m => m[1]);
+  if (!pKeys.length) return '';
+
+  // 2) 사용자 선택 인덱스 우선
+  if (selectedIdx !== undefined && selectedIdx < pKeys.length) return pKeys[selectedIdx];
+
+  // 3) 이미지 경로 번호판 순서 매칭: /Images/CH_DATE_PLATE.JPG
   const norm = targetPlate.replace(/[\s\-]/g, '').toUpperCase();
-  const rowRe = /<tr[^>]+onclick=["'][^"']*onclick_Car\('([^']+)'\)[^"']*["'][^>]*>([\s\S]*?)<\/tr>/gi;
-  const rows: { pKey: string; rowHtml: string }[] = [];
-  for (const m of html.matchAll(rowRe)) {
-    rows.push({ pKey: m[1], rowHtml: m[2] });
-  }
-  // 사용자 선택 인덱스 우선
-  if (selectedIdx !== undefined && selectedIdx < rows.length) return rows[selectedIdx].pKey;
-  // 이미지 경로에서 번호판 매칭: /Images/CH0_20260517101717_228머7491.JPG
   if (norm) {
-    for (const { pKey, rowHtml } of rows) {
-      const imgSrc = rowHtml.match(/\/Images\/[^"'\s]+/i)?.[0] ?? '';
-      const imgPlate = imgSrc.replace(/\.[^.]+$/, '').split('_').pop() ?? '';
-      if (imgPlate.replace(/[\s\-]/g, '').toUpperCase() === norm) return pKey;
-      // 텍스트 fallback
-      if (rowHtml.replace(/<[^>]+>/g, ' ').replace(/[\s\-]/g, '').toUpperCase().includes(norm)) return pKey;
+    const imgPlates = [...html.matchAll(/\/Images\/([^"'\s<>]+\.(?:JPG|jpg|png))/gi)]
+      .map(m => (m[1].replace(/\.[^.]+$/, '').split('_').pop() ?? '').replace(/[\s\-]/g, '').toUpperCase())
+      .filter(p => /[가-힣]/.test(p));
+    for (let i = 0; i < imgPlates.length && i < pKeys.length; i++) {
+      if (imgPlates[i] === norm) return pKeys[i];
     }
   }
-  // 단일 행이면 자동 선택
-  if (rows.length === 1) return rows[0].pKey;
-  return '';
+
+  // 4) 단일 항목이면 자동 선택
+  return pKeys.length === 1 ? pKeys[0] : '';
 }
 
 export async function registerCarsHttp(

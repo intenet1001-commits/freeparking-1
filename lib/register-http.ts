@@ -96,18 +96,21 @@ export async function registerCarsHttp(
         continue;
       }
 
-      // pKey: carSearch POST의 302 리다이렉트 목적지 URL에서 추출
-      const pKeyMatch = finalUrl.match(/[?&]pKey=([^&]+)/);
-      const pKey = pKeyMatch ? decodeURIComponent(pKeyMatch[1]) : '';
+      // dCode, dKind, pKey: 버튼 onclick MultipleDiscountApply() 인자에서 추출
+      // onclick: MultipleDiscountApply('0','pKey','dCode','dName','carNum','dKind','count',remark)
+      const onclickArgs = parseOnclickArgs(btnTag);
+      const pKeyFromOnclick = onclickArgs[1] ?? '';
+      const dCode = onclickArgs[2] ?? '';
+      const dKind = onclickArgs[5] ?? '매수차감';
+
+      // pKey: finalUrl(discountApply.cs?pKey=...)에서 추출, 실패 시 onclick 인자에서 추출
+      // POST 200 응답(동일 last4 다중 차량) 시 finalUrl에 pKey 없음 → onclick 인자 사용
+      const pKeyFromUrl = finalUrl.match(/[?&]pKey=([^&]+)/);
+      const pKey = pKeyFromUrl ? decodeURIComponent(pKeyFromUrl[1]) : pKeyFromOnclick;
       if (!pKey) {
         emit({ plate, status: 'failed', message: `pKey 추출 실패 (finalUrl: ${finalUrl.slice(0, 80)})` });
         continue;
       }
-
-      // dCode, dKind: 버튼 onclick MultipleDiscountApply() 인자에서 추출
-      const onclickArgs = parseOnclickArgs(btnTag);
-      const dCode = onclickArgs[2] ?? '';
-      const dKind = onclickArgs[5] ?? '매수차감';
 
       const display = candidates.length > 0 && chosenIdx < candidates.length ? candidates[chosenIdx].plate : plate;
 

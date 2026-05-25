@@ -9,6 +9,9 @@ export type EmitFn = (data: {
   status: "pending" | "running" | "success" | "failed" | "duplicate" | "skipped" | "needs_selection" | "not_entered";
   message: string;
   candidates?: { plate: string; imageUrl?: string }[];
+  entryTime?: string;
+  appliedName?: string;
+  appliedKind?: 'allDay' | 'hourly';
 }) => void;
 
 export function normalizePlate(plate: string): string {

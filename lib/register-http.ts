@@ -1,5 +1,6 @@
 import { CarInput, EmitFn, getLast4, normalizePlate, extractCandidates } from './register';
 import { ajparkLogin, searchCar, mergeCookies, extractSetCookies, buildBaseUrl, UA } from './ajpark-http';
+import { parseEntryTime } from './check-status';
 
 // onclick="javascript:MultipleDiscountApply('0','pKey','dCode','dName','carNum','dKind','count',remark)"
 function parseOnclickArgs(btnTag: string): string[] {
@@ -144,10 +145,25 @@ export async function registerCarsHttp(
       if (isDisabled) {
         const quotaMatch = btnValue.match(/\((\d+)\)\s*$/);
         const quota = quotaMatch ? parseInt(quotaMatch[1]) : null;
+        const skipEntry = parseEntryTime(html);
+        const skipSuffix = skipEntry ? ` · 입차 ${skipEntry}` : '';
+        const skipKind: 'allDay' | 'hourly' = btnLabel.includes('종일') ? 'allDay' : 'hourly';
         if (quota === 0) {
-          emit({ plate, status: 'failed', message: `${btnLabel} 잔여 매수 없음` });
+          emit({
+            plate,
+            status: 'failed',
+            message: `${btnLabel} 잔여 매수 없음${skipSuffix}`,
+            entryTime: skipEntry,
+          });
         } else {
-          emit({ plate, status: 'skipped', message: `이미 오늘 ${btnLabel} 처리됨` });
+          emit({
+            plate,
+            status: 'skipped',
+            message: `이미 오늘 ${btnLabel} 처리됨${skipSuffix}`,
+            entryTime: skipEntry,
+            appliedName: btnLabel,
+            appliedKind: skipKind,
+          });
         }
         continue;
       }
@@ -165,6 +181,8 @@ export async function registerCarsHttp(
       }
 
       const display = candidates.length > 0 && chosenIdx < candidates.length ? candidates[chosenIdx].plate : plate;
+      const entryTime = parseEntryTime(html);
+      const appliedKind: 'allDay' | 'hourly' = btnLabel.includes('종일') ? 'allDay' : 'hourly';
 
       // 실제 등록: discountApplyProcRepeat.cs (GET 방식)
       const base = buildBaseUrl(finalUrl);
@@ -182,9 +200,18 @@ export async function registerCarsHttp(
       cookieJar = mergeCookies(cookieJar, extractSetCookies(clickResp.headers));
       const afterText = (await clickResp.text()).replace(/<[^>]+>/g, ' ');
 
+      const entrySuffix = entryTime ? ` · 입차 ${entryTime}` : '';
+
       // 성공: 리다이렉트 후 URL에 month= 포함 또는 응답 텍스트에 승인/완료
       if (clickResp.url.includes('month=') || afterText.includes('승인') || afterText.includes('완료')) {
-        emit({ plate, status: 'success', message: `${display} ${btnLabel} 등록 완료` });
+        emit({
+          plate,
+          status: 'success',
+          message: `${display} ${btnLabel} 등록 완료${entrySuffix}`,
+          entryTime,
+          appliedName: btnLabel,
+          appliedKind,
+        });
       } else {
         emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (응답: ${afterText.slice(0, 60).trim()})` });
       }

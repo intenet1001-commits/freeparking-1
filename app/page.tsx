@@ -41,6 +41,11 @@ type CarStatus = {
   message: string;
   checkedAt?: number;
   isLast?: boolean; // fp_logs 기반 마지막 기록
+  entryTime?: string;
+  appliedName?: string;
+  appliedKind?: 'allDay' | 'hourly';
+  quotaAllDay?: number;
+  quotaHourly?: number;
 };
 
 type LogEntry = {
@@ -281,7 +286,16 @@ export default function Home() {
             const data = JSON.parse(line.slice(6));
             if (data.done) break;
             if (data.plate) {
-              collected[data.plate] = { status: data.status, message: data.message, checkedAt: Date.now() };
+              collected[data.plate] = {
+                status: data.status,
+                message: data.message,
+                checkedAt: Date.now(),
+                entryTime: data.entryTime,
+                appliedName: data.appliedName,
+                appliedKind: data.appliedKind,
+                quotaAllDay: data.quotaAllDay,
+                quotaHourly: data.quotaHourly,
+              };
               setStatusMap({ ...collected });
             }
           } catch {}
@@ -372,7 +386,17 @@ export default function Home() {
     if (logStatus === 'success' || logStatus === 'skipped' || logStatus === 'duplicate') {
       setStatusMap((prev) => ({
         ...prev,
-        [plate]: { status: 'registered', message: data.message as string, checkedAt: Date.now() },
+        [plate]: {
+          status: 'registered',
+          message: data.message as string,
+          checkedAt: Date.now(),
+          entryTime: data.entryTime as string | undefined,
+          appliedName: data.appliedName as string | undefined,
+          appliedKind: data.appliedKind as 'allDay' | 'hourly' | undefined,
+          // 등록 직후엔 잔여매수 알 수 없음 — 다음 현황조회에서 갱신
+          quotaAllDay: prev[plate]?.quotaAllDay,
+          quotaHourly: prev[plate]?.quotaHourly,
+        },
       }));
     }
   }
@@ -1019,7 +1043,7 @@ function StatusBadge({ status }: { status: LogEntry["status"] }) {
   return <span className={clsx("text-xs font-medium", color)}>{label}</span>;
 }
 
-function CarStatusBadge({ s }: { s: { status: string; message: string; checkedAt?: number; isLast?: boolean } }) {
+function CarStatusBadge({ s }: { s: CarStatus }) {
   const map: Record<string, [string, string]> = {
     not_entered: ["bg-gray-800 text-gray-400", "미입차"],
     entered:     ["bg-yellow-900/50 text-yellow-400 border border-yellow-800/50", "입차중"],
@@ -1028,16 +1052,42 @@ function CarStatusBadge({ s }: { s: { status: string; message: string; checkedAt
     multi_car:   ["bg-orange-900/50 text-orange-400 border border-orange-800/50", "복수차량"],
     error:       ["bg-red-900/50 text-red-400 border border-red-800/50", "오류"],
   };
-  const [cls, label] = map[s.status] ?? ["bg-gray-800 text-gray-500", s.status];
-  const time = s.checkedAt
+  const [cls, baseLabel] = map[s.status] ?? ["bg-gray-800 text-gray-500", s.status];
+
+  // 등록완료일 때 종일권/시간권 종류를 라벨에 추가
+  let label = baseLabel;
+  if (s.status === "registered") {
+    if (s.appliedKind === "allDay") label = "등록완료 · 종일권";
+    else if (s.appliedKind === "hourly") label = "등록완료 · 시간권";
+  }
+
+  const checkTime = s.checkedAt
     ? new Date(s.checkedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
     : null;
+
+  // 보조 정보 라인
+  const subParts: string[] = [];
+  if (s.entryTime) subParts.push(`입차 ${s.entryTime}`);
+  if (s.status === "registered" && s.appliedName) subParts.push(s.appliedName);
+  if ((s.status === "entered" || s.status === "no_quota") &&
+      (s.quotaAllDay !== undefined || s.quotaHourly !== undefined)) {
+    const parts: string[] = [];
+    if (s.quotaAllDay !== undefined) parts.push(`종일 ${s.quotaAllDay}`);
+    if (s.quotaHourly !== undefined) parts.push(`시간 ${s.quotaHourly}`);
+    subParts.push(`잔여 ${parts.join("/")}`);
+  }
+
   return (
     <span className="inline-flex flex-col gap-0.5">
       <span className={clsx("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium", cls)}>
         {label}
-        {time && <span className="opacity-60 font-normal">{s.isLast ? "기록" : ""} {time}</span>}
+        {checkTime && <span className="opacity-60 font-normal">{s.isLast ? "기록" : ""} {checkTime}</span>}
       </span>
+      {subParts.length > 0 && (
+        <span className="text-[10px] text-gray-400/80 font-normal px-0.5">
+          {subParts.join(" · ")}
+        </span>
+      )}
       {s.status === "error" && s.message && (
         <span className="text-xs text-red-400/70 font-normal px-0.5 max-w-[200px] truncate" title={s.message}>
           {s.message}

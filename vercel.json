@@ -2,6 +2,9 @@
   "functions": {
     "app/api/register/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/check-status/route.ts": {
+      "maxDuration": 60
     }
   }
 }

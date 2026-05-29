@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+/* 모바일(iOS Safari)에서 input 포커스 시 자동 zoom 방지: 16px 이상이면 확대 안 함.
+   화면 전체 입력(비밀번호/설정/차량추가/일괄/편집/권종드롭다운)에 일괄 적용. */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

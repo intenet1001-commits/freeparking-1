@@ -19,7 +19,6 @@ import {
   Copy,
   Check,
   Search,
-  RefreshCw,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabase";
@@ -29,6 +28,7 @@ type CarEntry = {
   plate: string;
   label: string;
   selected: boolean;
+  ticketChoice?: string; // 선호 권종 dCode (미지정=종일권 기본)
 };
 
 type Candidate = {
@@ -42,11 +42,34 @@ type CarStatus = {
   checkedAt?: number;
   isLast?: boolean; // fp_logs 기반 마지막 기록
   entryTime?: string;
+  entryAt?: string; // ISO+09:00 — 경과시간 계산용
   appliedName?: string;
   appliedKind?: 'allDay' | 'hourly';
   quotaAllDay?: number;
   quotaHourly?: number;
 };
+
+// 차량별 선택 가능 권종 (실측 dCode). 종일권 기본.
+const TICKET_OPTIONS: { dCode: string; label: string }[] = [
+  { dCode: "00005", label: "종일권" },
+  { dCode: "00004", label: "1시간30분" },
+  { dCode: "00002", label: "1시간" },
+  { dCode: "00001", label: "30분" },
+];
+const SPECIAL_ROWS = new Set(["__settings__", "__ticketchoices__"]);
+
+// 입차시각(ISO) → "N시간 M분 경과" / "M분 경과". now(epoch)는 부모 타이머가 주입.
+// epoch 차이만 쓰므로 표시 단말 타임존과 무관.
+function formatElapsed(entryAtISO?: string, now?: number): string | null {
+  if (!entryAtISO || !now) return null;
+  const start = new Date(entryAtISO).getTime();
+  if (Number.isNaN(start)) return null;
+  let mins = Math.floor((now - start) / 60000);
+  if (mins < 0) mins = 0;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}시간 ${m}분 경과` : `${m}분 경과`;
+}
 
 type LogEntry = {
   id: string;
@@ -77,7 +100,7 @@ export default function Home() {
   const [editLabel, setEditLabel] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({ url: "", id: "", pw: "" });
-  const [isLocal, setIsLocal] = useState(true);
+  const [now, setNow] = useState(0); // 경과시간 실시간 갱신용 (0=미초기화)
   const [statusMap, setStatusMap] = useState<Record<string, CarStatus>>({});
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -89,34 +112,42 @@ export default function Home() {
     if (localStorage.getItem("fp_authed") === "1") setAuthed(true);
   }, []);
 
+  // 경과시간 타이머: 차량 수와 무관하게 단일 setInterval. 화면 복귀 시 즉시 갱신.
   useEffect(() => {
-    const hostname = window.location.hostname;
-    setIsLocal(hostname === "localhost" || /^(192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|10\.)/.test(hostname));
+    const tick = () => setNow(Date.now());
+    tick();
+    const iv = setInterval(tick, 60000);
+    const onVis = () => { if (!document.hidden) tick(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
   useEffect(() => {
+    // 단일 쿼리로 차량 + 설정(__settings__) + 권종맵(__ticketchoices__) 모두 로드
     supabase
       .from("fp_cars")
       .select("*")
       .order("created_at")
       .then(({ data }) => {
-        if (data) setCars(data.filter(r => r.plate !== "__settings__").map((r) => ({ ...r, selected: true })));
-      });
-    // fp_cars의 plate='__settings__' 행에 설정 저장 (별도 테이블 불필요)
-    supabase
-      .from("fp_cars")
-      .select("label")
-      .eq("plate", "__settings__")
-      .single()
-      .then(({ data }) => {
-        if (data?.label) {
+        if (!data) return;
+        // 권종 선택 맵: __ticketchoices__ 행의 label JSON ({ carId: dCode })
+        let choiceMap: Record<string, string> = {};
+        const tcRow = data.find((r) => r.plate === "__ticketchoices__");
+        if (tcRow?.label) { try { choiceMap = JSON.parse(tcRow.label); } catch {} }
+        setCars(
+          data
+            .filter((r) => !SPECIAL_ROWS.has(r.plate))
+            .map((r) => ({ ...r, selected: true, ticketChoice: choiceMap[r.id] }))
+        );
+        // 설정: __settings__ 행의 label JSON. 없으면 localStorage 폴백
+        const sRow = data.find((r) => r.plate === "__settings__");
+        if (sRow?.label) {
           try {
-            const s = JSON.parse(data.label);
+            const s = JSON.parse(sRow.label);
             setSettings({ url: s.url ?? '', id: s.id ?? '', pw: s.pw ?? '' });
             return;
           } catch {}
         }
-        // Supabase에 없으면 localStorage 폴백
         try {
           const local = localStorage.getItem('freeparking_settings');
           if (local) setSettings(JSON.parse(local));
@@ -206,9 +237,18 @@ export default function Home() {
           newCars.map((c) => ({ plate: c.plate, label: c.label })),
           { onConflict: "plate", ignoreDuplicates: true }
         );
-      // Re-fetch full list
+      // Re-fetch full list (권종맵 병합 유지)
       const { data } = await supabase.from("fp_cars").select("*").order("created_at");
-      if (data) setCars(data.filter(r => r.plate !== "__settings__").map((r) => ({ ...r, selected: true })));
+      if (data) {
+        let choiceMap: Record<string, string> = {};
+        const tcRow = data.find((r) => r.plate === "__ticketchoices__");
+        if (tcRow?.label) { try { choiceMap = JSON.parse(tcRow.label); } catch {} }
+        setCars(
+          data
+            .filter((r) => !SPECIAL_ROWS.has(r.plate))
+            .map((r) => ({ ...r, selected: true, ticketChoice: choiceMap[r.id] }))
+        );
+      }
     }
     setBulkText("");
     setShowBulk(false);
@@ -217,7 +257,16 @@ export default function Home() {
 
   async function removeCar(id: string) {
     await supabase.from("fp_cars").delete().eq("id", id);
-    setCars((prev) => prev.filter((c) => c.id !== id));
+    setCars((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      // 삭제 차량의 권종 선택을 __ticketchoices__에서도 정리 (고아 키 방지)
+      const map: Record<string, string> = {};
+      for (const c of next) if (c.ticketChoice) map[c.id] = c.ticketChoice;
+      supabase
+        .from("fp_cars")
+        .upsert({ plate: "__ticketchoices__", label: JSON.stringify(map) }, { onConflict: "plate" });
+      return next;
+    });
   }
 
   async function updateCar(id: string) {
@@ -227,6 +276,21 @@ export default function Home() {
     await supabase.from("fp_cars").update({ plate, label }).eq("id", id);
     setCars((prev) => prev.map((c) => c.id === id ? { ...c, plate, label } : c));
     setEditingId(null);
+  }
+
+  // 차량별 권종 선택 저장. 컬럼 추가 없이 __ticketchoices__ 행에 { carId: dCode } JSON으로 영속.
+  // 함수형 업데이트로 prev(최신 상태)에서 map을 빌드 → 연속 변경 시 직전 선택 유실 방지.
+  function saveTicketChoice(id: string, dCode: string) {
+    setCars((prev) => {
+      const next = prev.map((c) => (c.id === id ? { ...c, ticketChoice: dCode } : c));
+      const map: Record<string, string> = {};
+      for (const c of next) if (c.ticketChoice) map[c.id] = c.ticketChoice;
+      supabase
+        .from("fp_cars")
+        .upsert({ plate: "__ticketchoices__", label: JSON.stringify(map) }, { onConflict: "plate" })
+        .then(({ error }) => { if (error) setToast({ msg: `권종 저장 실패: ${error.message}`, ok: false }); });
+      return next;
+    });
   }
 
   function toggleCar(id: string) {
@@ -274,33 +338,22 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plates, settings }),
       });
-      const reader = resp.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) return;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
-        for (const line of chunk.split("\n").filter((l) => l.startsWith("data: "))) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.done) break;
-            if (data.plate) {
-              collected[data.plate] = {
-                status: data.status,
-                message: data.message,
-                checkedAt: Date.now(),
-                entryTime: data.entryTime,
-                appliedName: data.appliedName,
-                appliedKind: data.appliedKind,
-                quotaAllDay: data.quotaAllDay,
-                quotaHourly: data.quotaHourly,
-              };
-              setStatusMap({ ...collected });
-            }
-          } catch {}
-        }
-      }
+      await readSSE(resp, (data) => {
+        if (data.done || !data.plate) return;
+        const plate = data.plate as string;
+        collected[plate] = {
+          status: data.status as CarStatus["status"],
+          message: data.message as string,
+          checkedAt: Date.now(),
+          entryTime: data.entryTime as string | undefined,
+          entryAt: data.entryAt as string | undefined,
+          appliedName: data.appliedName as string | undefined,
+          appliedKind: data.appliedKind as 'allDay' | 'hourly' | undefined,
+          quotaAllDay: data.quotaAllDay as number | undefined,
+          quotaHourly: data.quotaHourly as number | undefined,
+        };
+        setStatusMap({ ...collected });
+      });
     } catch (e) {
       console.error(e);
     } finally {
@@ -352,17 +405,22 @@ export default function Home() {
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
     if (!reader) throw new Error("스트림 없음");
+    // 청크 경계로 'data:' 라인이 쪼개져도 유실되지 않도록 버퍼 누적 (모바일/프록시 신뢰성)
+    let buffer = "";
+    const flush = (line: string) => {
+      if (!line.startsWith("data: ")) return; // ': ping' 주석 등은 무시
+      try { onData(JSON.parse(line.slice(6))); } catch {}
+    };
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value);
-      for (const line of chunk.split("\n").filter((l) => l.startsWith("data: "))) {
-        try {
-          const data = JSON.parse(line.slice(6));
-          onData(data);
-        } catch {}
-      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? ""; // 마지막 미완성 라인은 다음 read까지 보존
+      for (const line of lines) flush(line);
     }
+    buffer += decoder.decode();
+    for (const line of buffer.split("\n")) flush(line);
   }
 
   function applyLogUpdate(data: Record<string, unknown>) {
@@ -391,6 +449,7 @@ export default function Home() {
           message: data.message as string,
           checkedAt: Date.now(),
           entryTime: data.entryTime as string | undefined,
+          entryAt: data.entryAt as string | undefined,
           appliedName: data.appliedName as string | undefined,
           appliedKind: data.appliedKind as 'allDay' | 'hourly' | undefined,
           // 등록 직후엔 잔여매수 알 수 없음 — 다음 현황조회에서 갱신
@@ -448,7 +507,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cars: targets.map((c) => ({ plate: c.plate, label: c.label })),
+          cars: targets.map((c) => ({ plate: c.plate, label: c.label, ticketChoice: c.ticketChoice })),
           settings,
           selectedJson: {},
         }),
@@ -503,7 +562,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cars: [{ plate: car.plate, label: car.label }],
+          cars: [{ plate: car.plate, label: car.label, ticketChoice: car.ticketChoice }],
           settings,
           selectedJson: { [plate]: selectedIndex },
         }),
@@ -779,7 +838,7 @@ export default function Home() {
                     type="checkbox"
                     checked={car.selected}
                     onChange={() => toggleCar(car.id)}
-                    className="w-4 h-4 accent-blue-500 cursor-pointer"
+                    className="w-5 h-5 accent-blue-500 cursor-pointer shrink-0"
                   />
                   {editingId === car.id ? (
                     <>
@@ -818,18 +877,31 @@ export default function Home() {
                           <span className="text-xs text-gray-500">{car.label}</span>
                         )}
                         {statusMap[car.plate] && (
-                          <CarStatusBadge s={statusMap[car.plate]} />
+                          <CarStatusBadge s={statusMap[car.plate]} now={now} />
                         )}
+                        {/* 차량별 등록 권종 선택 (종일권 기본) */}
+                        <select
+                          value={car.ticketChoice ?? "00005"}
+                          onChange={(e) => saveTicketChoice(car.id, e.target.value)}
+                          title="등록할 권종 선택"
+                          className="bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+                        >
+                          {TICKET_OPTIONS.map((o) => (
+                            <option key={o.dCode} value={o.dCode}>{o.label}</option>
+                          ))}
+                        </select>
                       </div>
                       <button
                         onClick={() => { setEditingId(car.id); setEditPlate(car.plate); setEditLabel(car.label); }}
-                        className="text-gray-700 hover:text-gray-400 transition-colors"
+                        className="p-2 -m-0.5 text-gray-700 hover:text-gray-400 transition-colors shrink-0"
+                        aria-label="차량 수정"
                       >
-                        <Pencil className="w-3.5 h-3.5" />
+                        <Pencil className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => setPendingDeleteId(car.id)}
-                        className="text-gray-700 hover:text-red-400 transition-colors"
+                        className="p-2 -m-0.5 text-gray-700 hover:text-red-400 transition-colors shrink-0"
+                        aria-label="차량 삭제"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1043,7 +1115,7 @@ function StatusBadge({ status }: { status: LogEntry["status"] }) {
   return <span className={clsx("text-xs font-medium", color)}>{label}</span>;
 }
 
-function CarStatusBadge({ s }: { s: CarStatus }) {
+function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
   const map: Record<string, [string, string]> = {
     not_entered: ["bg-gray-800 text-gray-400", "미입차"],
     entered:     ["bg-yellow-900/50 text-yellow-400 border border-yellow-800/50", "입차중"],
@@ -1068,6 +1140,11 @@ function CarStatusBadge({ s }: { s: CarStatus }) {
   // 보조 정보 라인
   const subParts: string[] = [];
   if (s.entryTime) subParts.push(`입차 ${s.entryTime}`);
+  // 입차중/잔여없음일 때 경과시간 표시 (요구사항 A)
+  if (s.status === "entered" || s.status === "no_quota") {
+    const elapsed = formatElapsed(s.entryAt, now);
+    if (elapsed) subParts.push(elapsed);
+  }
   if (s.status === "registered" && s.appliedName) subParts.push(s.appliedName);
   if ((s.status === "entered" || s.status === "no_quota") &&
       (s.quotaAllDay !== undefined || s.quotaHourly !== undefined)) {

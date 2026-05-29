@@ -4,6 +4,10 @@
  * Form action: login;jsessionid=<token>
  */
 
+// 무응답 사이트(codns DDNS 평문 HTTP)에 함수가 maxDuration까지 매달리는 것 방지.
+// 정상 응답은 수십 ms~1s 수준이라 15s는 hung connection 안전망.
+const FETCH_TIMEOUT = 15000;
+
 export function extractSetCookies(headers: Headers): string[] {
   const cookies: string[] = [];
   headers.forEach((val, key) => {
@@ -47,6 +51,11 @@ export function parseHiddenInputs(html: string): Record<string, string> {
   return fields;
 }
 
+// 로그인 페이지 고유 마커(다른 페이지엔 0건, 캡처로 검증). 세션 만료 시 응답이 로그인폼으로 떨어짐.
+export function isLoginPage(html: string): boolean {
+  return html.includes('j_username_form');
+}
+
 export const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
 export type LoginResult =
@@ -62,7 +71,7 @@ export async function ajparkLogin(
   const baseUrl = buildBaseUrl(url);
 
   // 1. GET login page → session cookie + form action
-  const p1 = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': UA } });
+  const p1 = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
   cookieJar = mergeCookies(cookieJar, extractSetCookies(p1.headers));
   const loginHtml = await p1.text();
 
@@ -89,6 +98,7 @@ export async function ajparkLogin(
       j_username,
       j_password: adminPw,
     }).toString(),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
   cookieJar = mergeCookies(cookieJar, extractSetCookies(p2.headers));
 
@@ -121,6 +131,7 @@ export async function ajparkLogin(
       currentResp = await fetch(nextUrl, {
         redirect: 'manual',
         headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: currentUrl },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
       });
       cookieJar = mergeCookies(cookieJar, extractSetCookies(currentResp.headers));
     } else if (status === 200) {
@@ -146,18 +157,26 @@ export async function ajparkLogin(
   return { ok: true, cookieJar, carSearchUrl };
 }
 
+export type SearchResult = { html: string; cookieJar: string; finalUrl: string; sessionExpired: boolean };
+
 export async function searchCar(
   carSearchUrl: string,
   cookieJar: string,
   last4: string
-): Promise<{ html: string; cookieJar: string; finalUrl: string }> {
+): Promise<SearchResult> {
   // GET carSearch page for form structure
   const csPage = await fetch(carSearchUrl, {
     headers: { Cookie: cookieJar, 'User-Agent': UA },
     redirect: 'follow',
+    signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
   cookieJar = mergeCookies(cookieJar, extractSetCookies(csPage.headers));
   const csHtml = await csPage.text();
+
+  // 세션 만료 시 carSearch GET이 로그인폼으로 떨어짐 → 호출측에서 재로그인하도록 신호
+  if (isLoginPage(csHtml)) {
+    return { html: csHtml, cookieJar, finalUrl: csPage.url || carSearchUrl, sessionExpired: true };
+  }
 
   const formActionRaw = csHtml.match(/<form[^>]+action=['"]([^'"]+)['"]/i)?.[1] ?? '';
   const searchAction = formActionRaw
@@ -177,6 +196,7 @@ export async function searchCar(
       'User-Agent': UA,
     },
     body: new URLSearchParams({ ...csHidden, carNumber: last4, from: today, fromHH: '00' }).toString(),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
   cookieJar = mergeCookies(cookieJar, extractSetCookies(postResp.headers));
 
@@ -191,6 +211,7 @@ export async function searchCar(
       const getResp = await fetch(finalUrl, {
         redirect: 'follow',
         headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: searchAction },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
       });
       cookieJar = mergeCookies(cookieJar, extractSetCookies(getResp.headers));
       html = await getResp.text();
@@ -200,5 +221,5 @@ export async function searchCar(
     html = await postResp.text();
   }
 
-  return { html, cookieJar, finalUrl };
+  return { html, cookieJar, finalUrl, sessionExpired: isLoginPage(html) };
 }

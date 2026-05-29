@@ -1,15 +1,24 @@
 /**
- * TypeScript port of scripts/register.py
- * HI PARKING (AJ파크) 종일권 자동 등록 로직
+ * HI PARKING (AJ파크) 무료주차 공용 유틸 + 타입.
+ * 등록 실로직은 lib/register-http.ts(registerCarsHttp). 과거 Playwright 구현(registerCars)은
+ * API route 미사용 데드코드라 제거됨 — 공용 유틸/타입만 보존.
  */
 
-export type CarInput = { plate: string; label: string };
+export type CarInput = {
+  plate: string;
+  label: string;
+  // 차량별 선호 권종 dCode (예: '00005' 종일권, '00004' 1시간30분).
+  // 미지정/없음이면 종일권 기본 (하위호환).
+  ticketChoice?: string;
+};
+
 export type EmitFn = (data: {
   plate: string;
   status: "pending" | "running" | "success" | "failed" | "duplicate" | "skipped" | "needs_selection" | "not_entered";
   message: string;
   candidates?: { plate: string; imageUrl?: string }[];
   entryTime?: string;
+  entryAt?: string;
   appliedName?: string;
   appliedKind?: 'allDay' | 'hourly';
 }) => void;
@@ -55,242 +64,4 @@ export function extractCandidates(
   }
 
   return candidates;
-}
-
-export async function registerCars(
-  url: string,
-  adminId: string,
-  adminPw: string,
-  cars: CarInput[],
-  selectedJson: Record<string, number>,
-  emit: EmitFn
-): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let browser: any = null;
-
-  try {
-    if (process.env.VERCEL) {
-      const chromiumBin = (await import('@sparticuz/chromium')).default;
-      const { chromium } = await import('playwright-core');
-      browser = await chromium.launch({
-        args: chromiumBin.args,
-        executablePath: await chromiumBin.executablePath(),
-        headless: true,
-      });
-    } else {
-      const { chromium } = await import('playwright');
-      browser = await chromium.launch({ headless: true });
-    }
-  } catch (e) {
-    for (const car of cars) {
-      emit({ plate: car.plate, status: 'failed', message: `브라우저 실행 실패: ${String(e).slice(0, 80)}` });
-    }
-    return;
-  }
-
-  const page = await browser.newPage();
-
-  // confirm/alert 자동 수락
-  page.on('dialog', (dialog: { accept: () => Promise<void> }) => dialog.accept());
-
-  // ── 로그인 ────────────────────────────────────────────────────────
-  try {
-    await page.goto(url, { timeout: 15000 });
-    await page.waitForLoadState('networkidle', { timeout: 10000 });
-    await page.fill("input[name='j_username_form']", adminId);
-    await page.fill("input[name='j_password_form']", adminPw);
-    await page.click("a:has-text('로그인')");
-    await page.waitForURL('**/carSearch**', { timeout: 15000 }).catch(() => {});
-
-    if (!page.url().includes('carSearch')) {
-      for (const car of cars) {
-        emit({ plate: car.plate, status: 'failed', message: '로그인 실패 (아이디/비밀번호 확인)' });
-      }
-      await browser.close();
-      return;
-    }
-  } catch (e) {
-    for (const car of cars) {
-      emit({ plate: car.plate, status: 'failed', message: `로그인 오류: ${String(e).slice(0, 120)}` });
-    }
-    await browser.close();
-    return;
-  }
-
-  // ── 차량별 처리 ───────────────────────────────────────────────────
-  for (const car of cars) {
-    const plate = car.plate.trim();
-    const last4 = getLast4(plate);
-    const normPlate = normalizePlate(plate);
-    emit({ plate, status: 'running', message: `'${last4}' 조회 중...` });
-
-    try {
-      await page.fill('#carNumber', last4);
-      await Promise.all([
-        page.waitForNavigation({ timeout: 10000, waitUntil: 'domcontentloaded' }).catch(() => {}),
-        page.click('input[type=submit]'),
-      ]);
-
-      const bodyText: string = await page.innerText('body');
-      const content: string = await page.content();
-
-      if (!bodyText.includes('입차된 차량') && !bodyText.includes('차량번호:')) {
-        emit({ plate, status: 'not_entered', message: '입차 없음' });
-        continue;
-      }
-
-      // 다중 차량 목록 페이지 처리 (동일 last4 복수 차량 → 302 없이 carSearch.cs 200 응답)
-      // 각 행: <tr onclick="onclick_Car('pKey')"> — 해당 차량 클릭 후 discountApply.cs로 이동
-      if (page.url().includes('carSearch') && content.includes('onclick_Car')) {
-        const listCandidates = extractCandidates(content);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rows: any[] = await page.$$('tr[onclick*="onclick_Car"]');
-
-        let targetRow = null;
-        // 선택 인덱스 우선
-        if (plate in selectedJson && Number(selectedJson[plate]) < rows.length) {
-          targetRow = rows[Number(selectedJson[plate])];
-        } else if (normPlate) {
-          // 이미지 src의 번호판으로 자동 매칭
-          for (const row of rows) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const img: any = await row.$('img');
-            if (img) {
-              const src: string = (await img.getAttribute('src')) ?? '';
-              const imgPlate = src.replace(/\.[^.]+$/, '').split('_').pop() ?? '';
-              if (normalizePlate(imgPlate) === normPlate) { targetRow = row; break; }
-            }
-          }
-        }
-        if (!targetRow && rows.length === 1) targetRow = rows[0];
-
-        if (!targetRow) {
-          emit({ plate, status: 'needs_selection', message: '여러 차량 발견 — 선택 필요', candidates: listCandidates.slice(0, 4) });
-          continue;
-        }
-
-        await Promise.all([
-          page.waitForNavigation({ timeout: 10000, waitUntil: 'domcontentloaded' }).catch(() => {}),
-          targetRow.click(),
-        ]);
-      }
-
-      const candidates = extractCandidates(await page.content());
-
-      // 종일권 버튼 조회
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let btns: any[] = await page.$$("input[type=button][id*='BTN_종일']");
-      if (btns.length === 0) {
-        btns = await page.$$("input[type=button][value*='종일']");
-      }
-
-      // 후보도 버튼도 없으면 실제로 입차되지 않은 것으로 판단
-      if (candidates.length === 0 && btns.length === 0) {
-        emit({ plate, status: 'not_entered', message: '입차 없음' });
-        continue;
-      }
-
-      // ── 선택 인덱스 결정 ──────────────────────────────────────────
-      let chosenIdx: number | null = null;
-
-      // 1) selectedJson에 사용자가 직접 선택한 인덱스
-      if (plate in selectedJson) {
-        chosenIdx = Number(selectedJson[plate]);
-      }
-
-      // 2) 전체 번호판으로 자동 매칭
-      if (chosenIdx === null && normPlate && candidates.length > 0) {
-        for (let i = 0; i < candidates.length; i++) {
-          if (normalizePlate(candidates[i].plate) === normPlate) {
-            chosenIdx = i;
-            break;
-          }
-        }
-      }
-
-      // 3) 후보/버튼이 1개 이하면 자동 선택
-      if (chosenIdx === null) {
-        const n = Math.max(candidates.length, btns.length);
-        if (n <= 1) chosenIdx = 0;
-      }
-
-      // 4) 여전히 결정 못 하면 프론트에 선택 요청
-      if (chosenIdx === null) {
-        emit({
-          plate,
-          status: 'needs_selection',
-          message: '여러 차량 발견 — 선택 필요',
-          candidates: candidates.slice(0, 4),
-        });
-        continue;
-      }
-
-      // ── 버튼 클릭 ─────────────────────────────────────────────────
-      const btn = chosenIdx < btns.length ? btns[chosenIdx] : (btns[0] ?? null);
-
-      if (!btn) {
-        // 디버그: 페이지의 모든 버튼 value 수집
-        const allBtns: any[] = await page.$$("input[type=button]");
-        const btnValues: string[] = [];
-        for (const b of allBtns.slice(0, 10)) {
-          const v = await b.getAttribute('value') ?? '';
-          if (v) btnValues.push(v);
-        }
-        const hint = btnValues.length > 0 ? `[버튼목록: ${btnValues.join(', ')}]` : '[버튼 없음]';
-        emit({ plate, status: 'failed', message: `종일권 버튼 없음 ${hint}` });
-        continue;
-      }
-
-      const btnValue: string = (await btn.getAttribute('value')) ?? '종일권';
-      const btnLabel = btnValue.split('(')[0].trim();
-
-      const isDisabled: boolean =
-        (await btn.isDisabled()) || (await btn.getAttribute('disabled')) !== null;
-
-      if (isDisabled) {
-        // 잔여 매수 확인 — 버튼 value에서 "(숫자)" 추출 (예: "종일권(주말) (24)")
-        // 페이지 이력에 '승인'/'적용'이 항상 존재하므로 텍스트 비교는 신뢰 불가
-        const quotaMatch = btnValue.match(/\((\d+)\)\s*$/);
-        const quota = quotaMatch ? parseInt(quotaMatch[1]) : null;
-        if (quota === 0) {
-          emit({ plate, status: 'failed', message: `${btnLabel} 잔여 매수 없음` });
-        } else {
-          emit({ plate, status: 'skipped', message: `이미 오늘 ${btnLabel} 처리됨` });
-        }
-        continue;
-      }
-
-      const display =
-        candidates.length > 0 && chosenIdx < candidates.length
-          ? candidates[chosenIdx].plate
-          : plate;
-
-      // MultipleDiscountApply(): confirm 수락 → location.href 이동 (discountApplyProc.cs)
-      // 버튼 클릭 후 페이지 이동 여부로 성공 판정 (stale ElementHandle 방지)
-      const prevUrl = page.url();
-      await Promise.all([
-        page.waitForNavigation({ timeout: 10000, waitUntil: 'domcontentloaded' }).catch(() => {}),
-        btn.click(),
-      ]);
-      const afterUrl = page.url();
-
-      if (afterUrl !== prevUrl) {
-        emit({ plate, status: 'success', message: `${display} ${btnLabel} 등록 완료` });
-      } else {
-        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (confirm 미수락 또는 서버 오류)` });
-      }
-    } catch (e) {
-      const msg = String(e);
-      if (msg.includes('Timeout') || msg.includes('timeout')) {
-        emit({ plate, status: 'failed', message: '응답 시간 초과' });
-      } else {
-        emit({ plate, status: 'failed', message: `오류: ${msg.slice(0, 80)}` });
-      }
-    }
-
-    // 서버 부하 방지
-    await new Promise((r) => setTimeout(r, 800));
-  }
-
-  await browser.close();
 }

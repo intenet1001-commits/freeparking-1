@@ -1,30 +1,20 @@
 import { CarInput, EmitFn, getLast4, normalizePlate, extractCandidates } from './register';
 import { ajparkLogin, searchCar, mergeCookies, extractSetCookies, buildBaseUrl, UA } from './ajpark-http';
-import { parseEntryTime } from './check-status';
+import {
+  parseEntryTime,
+  parseEntryDateTime,
+  parseDiscountButtons,
+  isEntered,
+  type DiscountButton,
+} from './check-status';
 
-// onclick="javascript:MultipleDiscountApply('0','pKey','dCode','dName','carNum','dKind','count',remark)"
-function parseOnclickArgs(btnTag: string): string[] {
-  const m = btnTag.match(/MultipleDiscountApply\((.+?)\)\s*;/i);
-  if (!m) return [];
-  const raw = m[1];
-  const args: string[] = [];
-  let cur = '';
-  let inQ = false;
-  let qCh = '';
-  for (const ch of raw) {
-    if (!inQ && (ch === "'" || ch === '"')) { inQ = true; qCh = ch; }
-    else if (inQ && ch === qCh) { inQ = false; }
-    else if (!inQ && ch === ',') { args.push(cur.trim()); cur = ''; }
-    else { cur += ch; }
-  }
-  args.push(cur.trim());
-  return args;
-}
+const FETCH_TIMEOUT = 15000;
+const ALLDAY_DCODE = '00005'; // 종일권 dCode (실측). 권종 미지정 시 기본값.
 
 // 다중 차량 목록 페이지(carSearch POST 200 응답)에서 특정 차량의 pKey 추출
 // 전략: onclick_Car('pKey')와 이미지 경로를 각각 단순 추출 후 순서로 매칭
 function extractPKeyFromCarList(html: string, targetPlate: string, selectedIdx?: number): string {
-  // 1) pKey 목록: onclick_Car('...') 순서대로 추출
+  // 1) pKey 목록: onclick_Car('...') 리터럴 호출만 추출 (function onclick_Car(myPick) 정의는 제외)
   const pKeys = [...html.matchAll(/onclick_Car\('([^']+)'\)/gi)].map(m => m[1]);
   if (!pKeys.length) return '';
 
@@ -46,6 +36,24 @@ function extractPKeyFromCarList(html: string, targetPlate: string, selectedIdx?:
   return pKeys.length === 1 ? pKeys[0] : '';
 }
 
+// 차량별 선호 권종(ticketChoice=dCode)에 맞는 버튼 선택.
+// 명시 선택이 있으면 그 dCode 버튼만(없으면 미선택 → 호출측에서 실패 처리),
+// 미지정이면 종일권(00005) → kind allDay 순으로 기본 선택.
+function selectButton(
+  buttons: DiscountButton[],
+  choice?: string
+): { btn?: DiscountButton; requested: boolean } {
+  if (choice) {
+    // 명시 선택: 정확 dCode 우선. 종일권(00005) 선택인데 사이트가 종일권 변형(다른 dCode)을
+    // 쓰는 경우 kind='allDay'로 폴백 — 미지정 기본 경로와 동일 동작 보장(UI는 둘 다 '종일권').
+    const exact = buttons.find(b => b.dCode === choice);
+    const btn = exact ?? (choice === ALLDAY_DCODE ? buttons.find(b => b.kind === 'allDay') : undefined);
+    return { btn, requested: true };
+  }
+  const allDay = buttons.find(b => b.dCode === ALLDAY_DCODE) ?? buttons.find(b => b.kind === 'allDay');
+  return { btn: allDay, requested: false };
+}
+
 export async function registerCarsHttp(
   url: string,
   adminId: string,
@@ -62,7 +70,24 @@ export async function registerCarsHttp(
     return { success: false, errors: [login.message] };
   }
 
-  let { cookieJar, carSearchUrl } = login;
+  let cookieJar = login.cookieJar;
+  let carSearchUrl = login.carSearchUrl;
+
+  // 세션 만료(JSESSIONID 타임아웃) 시 1회 재로그인 후 재조회.
+  async function searchWithRetry(last4: string) {
+    let r = await searchCar(carSearchUrl, cookieJar, last4);
+    cookieJar = r.cookieJar;
+    if (r.sessionExpired) {
+      const relogin = await ajparkLogin(url, adminId, adminPw);
+      if (relogin.ok) {
+        cookieJar = relogin.cookieJar;
+        carSearchUrl = relogin.carSearchUrl;
+        r = await searchCar(carSearchUrl, cookieJar, last4);
+        cookieJar = r.cookieJar;
+      }
+    }
+    return r;
+  }
 
   for (const car of cars) {
     const plate = car.plate.trim();
@@ -71,20 +96,24 @@ export async function registerCarsHttp(
     emit({ plate, status: 'running', message: `'${last4}' 조회 중...` });
 
     try {
-      const result = await searchCar(carSearchUrl, cookieJar, last4);
-      cookieJar = result.cookieJar;
+      const result = await searchWithRetry(last4);
       let html = result.html;
       let finalUrl = result.finalUrl;
-      const bodyText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
-      if (!bodyText.includes('입차된 차량') && !bodyText.includes('차량번호:')) {
+      // 세션 만료 후 재로그인까지 실패하면 '미입차'와 구분해 명확히 실패 표기
+      if (result.sessionExpired) {
+        emit({ plate, status: 'failed', message: '세션 만료 — 재로그인 실패 (설정/계정 확인)' });
+        continue;
+      }
+
+      // 입차 여부: pKey URL / BTN_ 버튼 / onclick_Car 리터럴 호출 (구 '차량번호:' 텍스트 가드 폐기)
+      if (!isEntered(html, finalUrl)) {
         emit({ plate, status: 'not_entered', message: '입차 없음' });
         continue;
       }
 
-      // 다중 차량 목록 페이지 처리
-      // carSearch POST가 200을 반환하면(동일 last4 복수 차량) finalUrl에 pKey가 없고 onclick_Car가 존재
-      if (!finalUrl.includes('pKey') && html.includes('onclick_Car')) {
+      // 다중 차량 목록 페이지: pKey 없는 200 응답 + onclick_Car('리터럴') 호출 존재(함수 정의는 제외)
+      if (!finalUrl.includes('pKey') && /onclick_Car\('[^']+'\)/.test(html)) {
         const listCandidates = extractCandidates(html);
 
         // 선택 인덱스 결정 (selectedJson → 번호판 자동 매칭 순)
@@ -109,114 +138,96 @@ export async function registerCarsHttp(
         const discResp = await fetch(discountUrl, {
           redirect: 'follow',
           headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: finalUrl },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT),
         });
         cookieJar = mergeCookies(cookieJar, extractSetCookies(discResp.headers));
         html = await discResp.text();
         finalUrl = discResp.url;
       }
 
-      const candidates = extractCandidates(html);
-      const btnRe = /input[^>]+type=["']?button["']?[^>]+(?:id=['"][^'"]*BTN_종일[^'"]*['"]|value=['"][^'"]*종일[^'"]*['"])[^>]*/gi;
-      const btnMatches = [...html.matchAll(btnRe)];
-
-      if (candidates.length === 0 && btnMatches.length === 0) {
-        emit({ plate, status: 'not_entered', message: '입차 없음' });
+      // 단일 차량의 discountApply 페이지 — 할인 버튼 전체 파싱
+      const buttons = parseDiscountButtons(html);
+      if (buttons.length === 0) {
+        emit({ plate, status: 'not_entered', message: '입차 없음 (할인 버튼 없음)' });
         continue;
       }
 
-      let chosenIdx: number | null = null;
-      if (plate in selectedJson) chosenIdx = Number(selectedJson[plate]);
-      if (chosenIdx === null && normPlate && candidates.length > 0) {
-        for (let i = 0; i < candidates.length; i++) {
-          if (normalizePlate(candidates[i].plate) === normPlate) { chosenIdx = i; break; }
+      const entryTime = parseEntryTime(html);
+      const entryAt = parseEntryDateTime(html);
+      const entrySuffix = entryTime ? ` · 입차 ${entryTime}` : '';
+      const display = extractCandidates(html)[0]?.plate ?? plate;
+
+      // 차량별 권종 선택 (ticketChoice=dCode). 미지정이면 종일권 기본.
+      const { btn: target, requested } = selectButton(buttons, car.ticketChoice);
+      if (!target) {
+        const avail = buttons.map(b => `${b.name}(${b.quota})`).join(', ');
+        if (requested) {
+          emit({ plate, status: 'failed', message: `선택 권종 없음 — 가능: ${avail}${entrySuffix}`, entryTime, entryAt });
+        } else {
+          emit({ plate, status: 'failed', message: `종일권 없음 — 권종 선택 필요 (가능: ${avail})${entrySuffix}`, entryTime, entryAt });
         }
-      }
-      if (chosenIdx === null && Math.max(candidates.length, btnMatches.length) <= 1) chosenIdx = 0;
-      if (chosenIdx === null) {
-        emit({ plate, status: 'needs_selection', message: '여러 차량 발견 — 선택 필요', candidates: candidates.slice(0, 4) });
         continue;
       }
 
-      const btnTag = btnMatches[chosenIdx < btnMatches.length ? chosenIdx : 0]?.[0] ?? '';
-      const btnValue = (btnTag.match(/value=['"]([^'"]+)['"]/i)?.[1] ?? '종일권').replace(/&nbsp;/gi, ' ');
-      const btnLabel = btnValue.replace(/\s*\(\d+\)\s*$/, '').trim();
-      const isDisabled = /disabled/i.test(btnTag);
+      const btnLabel = target.name;
+      const appliedKind: 'allDay' | 'hourly' = target.kind;
 
-      if (isDisabled) {
-        const quotaMatch = btnValue.match(/\((\d+)\)\s*$/);
-        const quota = quotaMatch ? parseInt(quotaMatch[1]) : null;
-        const skipEntry = parseEntryTime(html);
-        const skipSuffix = skipEntry ? ` · 입차 ${skipEntry}` : '';
-        const skipKind: 'allDay' | 'hourly' = btnLabel.includes('종일') ? 'allDay' : 'hourly';
-        if (quota === 0) {
-          emit({
-            plate,
-            status: 'failed',
-            message: `${btnLabel} 잔여 매수 없음${skipSuffix}`,
-            entryTime: skipEntry,
-          });
+      // disabled: 잔여 0이면 소진(실패), 0 아니면 이미 처리됨(패스)
+      if (target.disabled) {
+        if (target.quota === 0) {
+          emit({ plate, status: 'failed', message: `${btnLabel} 잔여 매수 없음${entrySuffix}`, entryTime, entryAt });
         } else {
           emit({
-            plate,
-            status: 'skipped',
-            message: `이미 오늘 ${btnLabel} 처리됨${skipSuffix}`,
-            entryTime: skipEntry,
-            appliedName: btnLabel,
-            appliedKind: skipKind,
+            plate, status: 'skipped',
+            message: `이미 오늘 ${btnLabel} 처리됨${entrySuffix}`,
+            entryTime, entryAt, appliedName: btnLabel, appliedKind,
           });
         }
         continue;
       }
 
-      // pKey: finalUrl(discountApply.cs?pKey=...)에서 추출, 실패 시 onclick 인자(index 1)에서 추출
-      const onclickArgs = parseOnclickArgs(btnTag);
-      const dCode = onclickArgs[2] ?? '';
-      const dKind = onclickArgs[5] ?? '매수차감';
-
-      const pKeyFromUrl = finalUrl.match(/[?&]pKey=([^&]+)/);
-      const pKey = pKeyFromUrl ? decodeURIComponent(pKeyFromUrl[1]) : (onclickArgs[1] ?? '');
-      if (!pKey) {
-        emit({ plate, status: 'failed', message: `pKey 추출 실패 (finalUrl: ${finalUrl.slice(0, 80)})` });
+      // 차감방식: 실측 4개 버튼 전부 '매수차감'. 그 외(숙박 등)는 다른 엔드포인트라 수동 처리 안내.
+      const dKind = target.dKind || '매수차감';
+      if (!dKind.includes('매수차감')) {
+        emit({ plate, status: 'failed', message: `${btnLabel} 권종 종류(${dKind}) 자동등록 미지원 — 수동 등록 필요${entrySuffix}`, entryTime, entryAt });
         continue;
       }
 
-      const display = candidates.length > 0 && chosenIdx < candidates.length ? candidates[chosenIdx].plate : plate;
-      const entryTime = parseEntryTime(html);
-      const appliedKind: 'allDay' | 'hourly' = btnLabel.includes('종일') ? 'allDay' : 'hourly';
+      // pKey: finalUrl(discountApply.cs?pKey=...) 우선, 실패 시 버튼 onclick 인자
+      const pKeyFromUrl = finalUrl.match(/[?&]pKey=([^&]+)/);
+      const pKey = pKeyFromUrl ? decodeURIComponent(pKeyFromUrl[1]) : target.pKey;
+      if (!pKey || !target.dCode) {
+        emit({ plate, status: 'failed', message: `등록 정보 추출 실패 (pKey/dCode)` });
+        continue;
+      }
 
-      // 실제 등록: discountApplyProcRepeat.cs (GET 방식)
+      // 실제 등록: discountApplyProcRepeat.cs (GET). repeat=1(1매), remark 빈값.
       const base = buildBaseUrl(finalUrl);
-      const applyUrl = `${base}/discount/discountApplyProcRepeat.cs?pKey=${encodeURIComponent(pKey)}&dCode=${encodeURIComponent(dCode)}&dKind=${encodeURIComponent(dKind)}&fDays=&remark=&repeat=1`;
+      const applyUrl = `${base}/discount/discountApplyProcRepeat.cs?pKey=${encodeURIComponent(pKey)}&dCode=${encodeURIComponent(target.dCode)}&dKind=${encodeURIComponent(dKind)}&fDays=&remark=&repeat=1`;
 
       const clickResp = await fetch(applyUrl, {
         method: 'GET',
         redirect: 'follow',
-        headers: {
-          Cookie: cookieJar,
-          Referer: finalUrl,
-          'User-Agent': UA,
-        },
+        headers: { Cookie: cookieJar, Referer: finalUrl, 'User-Agent': UA },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
       });
       cookieJar = mergeCookies(cookieJar, extractSetCookies(clickResp.headers));
       const afterText = (await clickResp.text()).replace(/<[^>]+>/g, ' ');
 
-      const entrySuffix = entryTime ? ` · 입차 ${entryTime}` : '';
-
-      // 성공: 리다이렉트 후 URL에 month= 포함 또는 응답 텍스트에 승인/완료
+      // 성공판정: 등록 성공 시 discountApply.cs?month=...(달력)로 리다이렉트 (역공학 확인).
+      // '승인'/'완료' 텍스트는 보조 신호 — 라이브 1회 실등록으로 month= 잔류 재확인 권장.
       if (clickResp.url.includes('month=') || afterText.includes('승인') || afterText.includes('완료')) {
         emit({
-          plate,
-          status: 'success',
+          plate, status: 'success',
           message: `${display} ${btnLabel} 등록 완료${entrySuffix}`,
-          entryTime,
-          appliedName: btnLabel,
-          appliedKind,
+          entryTime, entryAt, appliedName: btnLabel, appliedKind,
         });
       } else {
-        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (응답: ${afterText.slice(0, 60).trim()})` });
+        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (응답: ${afterText.slice(0, 60).trim()})`, entryTime, entryAt });
       }
     } catch (e) {
-      const msg = `HTTP 오류: ${String(e).slice(0, 80)}`;
+      const isTimeout = String(e).includes('timeout') || String(e).includes('aborted') || (e as Error)?.name === 'TimeoutError';
+      const msg = isTimeout ? '응답 시간 초과 (사이트 무응답)' : `HTTP 오류: ${String(e).slice(0, 80)}`;
       errors.push(`${plate}: ${msg}`);
       emit({ plate, status: 'failed', message: msg });
     }

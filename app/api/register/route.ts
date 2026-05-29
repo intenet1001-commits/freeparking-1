@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { registerCarsHttp } from '@/lib/register-http';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
@@ -14,6 +15,8 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      // 프록시/모바일 버퍼링 방지: 연결 즉시 SSE 주석 1회 전송해 스트림을 연다
+      controller.enqueue(encoder.encode(': ping\n\n'));
       const errors: string[] = [];
       try {
         const result = await registerCarsHttp(url, adminId, adminPw, cars, selectedJson || {}, (data) => {
@@ -36,8 +39,9 @@ export async function POST(req: NextRequest) {
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
     },
   });
 }

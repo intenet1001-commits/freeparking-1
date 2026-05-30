@@ -320,10 +320,11 @@ export default function Home() {
 
   function applyStatusAndAutoSelect(newMap: Record<string, CarStatus>) {
     setStatusMap(newMap);
-    // 입차중(등록 전) 차량만 자동 선택
+    // 입차중(등록 전) 차량만 자동 선택. 단, 끝4자리만 일치하는 다른 차량(matchedPlate)은
+    // 자동 선택 제외 — 사용자가 직접 확인 후 체크해야 등록되도록 (오등록 방지).
     setCars((prev) => prev.map((c) => ({
       ...c,
-      selected: newMap[c.plate]?.status === "entered",
+      selected: newMap[c.plate]?.status === "entered" && !newMap[c.plate]?.matchedPlate,
     })));
   }
 
@@ -935,26 +936,42 @@ export default function Home() {
           <StatusCheckErrorButton statusMap={statusMap} settings={settings} />
         )}
 
-        {/* 미등록 입차 차량 안내 배너 */}
+        {/* 미등록 입차 차량 안내 배너 (4자리 불일치 차량은 자동선택 제외, 별도 안내) */}
         {(() => {
-          const enteredCount = cars.filter(c => statusMap[c.plate]?.status === "entered").length;
-          if (enteredCount === 0 || checkingStatus || Object.keys(statusMap).length === 0) return null;
+          if (checkingStatus || Object.keys(statusMap).length === 0) return null;
+          const enteredCount = cars.filter(c => statusMap[c.plate]?.status === "entered" && !statusMap[c.plate]?.matchedPlate).length;
+          const mismatchCount = cars.filter(c => statusMap[c.plate]?.matchedPlate).length;
+          if (enteredCount === 0 && mismatchCount === 0) return null;
           return (
-            <div className="bg-blue-950/40 border border-blue-700/50 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-blue-300">
-                  {enteredCount}대 입차 미등록 → 자동 선택됨
-                </p>
-                <p className="text-xs text-blue-400/60 mt-0.5">아래 실행 버튼으로 바로 등록하세요</p>
-              </div>
-              <button
-                onClick={runRegistration}
-                disabled={running}
-                className="shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50"
-              >
-                {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                지금 등록
-              </button>
+            <div className="space-y-2">
+              {enteredCount > 0 && (
+                <div className="bg-blue-950/40 border border-blue-700/50 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-blue-300">
+                      {enteredCount}대 입차 미등록 → 자동 선택됨
+                    </p>
+                    <p className="text-xs text-blue-400/60 mt-0.5">아래 실행 버튼으로 바로 등록하세요</p>
+                  </div>
+                  <button
+                    onClick={runRegistration}
+                    disabled={running}
+                    className="shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50"
+                  >
+                    {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                    지금 등록
+                  </button>
+                </div>
+              )}
+              {mismatchCount > 0 && (
+                <div className="bg-orange-950/40 border border-orange-700/50 rounded-2xl px-4 py-3">
+                  <p className="text-sm font-semibold text-orange-300">
+                    ⚠ {mismatchCount}대는 끝 4자리만 일치하는 다른 차량
+                  </p>
+                  <p className="text-xs text-orange-400/70 mt-0.5">
+                    자동 선택 안 됨 — 실제 입차 차량을 확인하고 직접 체크해야 등록됩니다
+                  </p>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -1135,6 +1152,14 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
     else if (s.appliedKind === "hourly") label = "등록완료 · 시간권";
   }
 
+  // 끝4자리만 일치하는 다른 차량이면 배지를 주황 경고로 바꿔 실제 차량번호를 전면에 노출
+  // (일반 '입차중'과 헷갈리지 않게 + 자동선택 제외됨을 시각적으로 구분)
+  let badgeCls = cls;
+  if (s.matchedPlate) {
+    badgeCls = "bg-orange-900/60 text-orange-300 border border-orange-600/70";
+    label = `⚠ ${s.matchedPlate}`;
+  }
+
   const checkTime = s.checkedAt
     ? new Date(s.checkedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
     : null;
@@ -1158,7 +1183,7 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
 
   return (
     <span className="inline-flex flex-col gap-0.5">
-      <span className={clsx("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium", cls)}>
+      <span className={clsx("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium", badgeCls)}>
         {label}
         {checkTime && <span className="opacity-60 font-normal">{s.isLast ? "기록" : ""} {checkTime}</span>}
       </span>
@@ -1168,8 +1193,8 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
         </span>
       )}
       {s.matchedPlate && (
-        <span className="text-[10px] text-orange-400 font-medium px-0.5" title={`끝 4자리로 매칭된 실제 입차 차량입니다. 등록 시 이 차량(${s.matchedPlate})에 적용됩니다.`}>
-          ⚠ 실제 {s.matchedPlate} · 끝4자리 일치 → 이 차에 등록됨
+        <span className="text-[10px] text-orange-400 font-medium px-0.5" title={`등록한 번호와 끝 4자리만 같은 다른 차량(${s.matchedPlate})입니다. 자동선택 제외 — 직접 체크 시 이 차량에 등록됩니다.`}>
+          끝4자리만 일치 (다른 차량) · 자동선택 안 됨
         </span>
       )}
       {s.status === "error" && s.message && (

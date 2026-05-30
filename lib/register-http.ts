@@ -4,6 +4,7 @@ import {
   parseEntryTime,
   parseEntryDateTime,
   parseDiscountButtons,
+  parseMatchedPlate,
   isEntered,
   type DiscountButton,
 } from './check-status';
@@ -156,6 +157,14 @@ export async function registerCarsHttp(
       const entryAt = parseEntryDateTime(html);
       const entrySuffix = entryTime ? ` · 입차 ${entryTime}` : '';
       const display = extractCandidates(html)[0]?.plate ?? plate;
+
+      // 4자리 충돌 차단: 시스템이 끝 4자리로 매칭한 실제 번호판이 등록 번호판과 다르면 등록 안 함.
+      // (엉뚱한 차에 무료주차가 등록되는 것 방지 — 사용자 정책)
+      const sysPlate = parseMatchedPlate(html) ?? extractCandidates(html)[0]?.plate;
+      if (sysPlate && normalizePlate(sysPlate) !== normPlate) {
+        emit({ plate, status: 'failed', message: `⚠ 다른 차량(${sysPlate}) — 끝 4자리만 일치, 등록 안 함. 번호판 확인${entrySuffix}`, entryTime, entryAt });
+        continue;
+      }
 
       // 차량별 권종 선택 (ticketChoice=dCode). 미지정이면 종일권 기본.
       const { btn: target, requested } = selectButton(buttons, car.ticketChoice);

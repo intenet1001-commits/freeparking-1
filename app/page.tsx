@@ -47,6 +47,7 @@ type CarStatus = {
   appliedKind?: 'allDay' | 'hourly';
   quotaAllDay?: number;
   quotaHourly?: number;
+  matchedPlate?: string; // 끝 4자리만 같은 다른 차량이 잡혔을 때 실제 번호판 (충돌 경고)
 };
 
 // 차량별 선택 가능 권종 (실측 dCode). 종일권 기본.
@@ -351,6 +352,7 @@ export default function Home() {
           appliedKind: data.appliedKind as 'allDay' | 'hourly' | undefined,
           quotaAllDay: data.quotaAllDay as number | undefined,
           quotaHourly: data.quotaHourly as number | undefined,
+          matchedPlate: data.matchedPlate as string | undefined,
         };
         setStatusMap({ ...collected });
       });
@@ -1163,6 +1165,11 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
       {subParts.length > 0 && (
         <span className="text-[10px] text-gray-400/80 font-normal px-0.5">
           {subParts.join(" · ")}
+        </span>
+      )}
+      {s.matchedPlate && (
+        <span className="text-[10px] text-orange-400 font-medium px-0.5" title={`등록된 번호판과 끝 4자리만 같은 다른 차량입니다. 등록 시 차단됩니다.`}>
+          ⚠ 실제 {s.matchedPlate} · 끝 4자리만 일치
         </span>
       )}
       {s.status === "error" && s.message && (

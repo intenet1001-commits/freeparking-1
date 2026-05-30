@@ -13,9 +13,23 @@ export type CarStatusResult = {
   appliedKind?: TicketKind; // registered 시 'allDay'/'hourly' 구분
   quotaAllDay?: number;     // 종일권 잔여 매수
   quotaHourly?: number;     // 시간권(기본) 잔여 매수
+  matchedPlate?: string;    // 시스템이 4자리로 매칭한 실제 전체 번호판이 등록 번호판과 다를 때만 채움 (충돌 경고)
 };
 
 export type EmitStatusFn = (data: CarStatusResult) => void;
+
+// 주차 시스템은 끝 4자리로만 검색 → 4자리가 같은 다른 차가 잡힐 수 있음.
+// discountApply 페이지의 "차량번호:" 또는 이미지 경로에서 실제 전체 번호판을 추출.
+export function parseMatchedPlate(html: string): string | undefined {
+  const text = html.replace(/&nbsp;/gi, ' ');
+  for (const m of text.matchAll(/차량번호:\s*([가-힣0-9]{5,12})/g)) {
+    const v = m[1].trim();
+    if (/[가-힣]/.test(v)) return v; // 한글 포함 = 실제 번호판 (빈 폼라벨 제외)
+  }
+  // fallback: /Images/CH_DATE_번호판.JPG
+  return [...html.matchAll(/\/Images\/[^"'<>\s]*_([가-힣0-9]+)\.(?:JPG|jpg|png)/gi)]
+    .map(m => m[1]).find(p => /[가-힣]/.test(p));
+}
 
 // onclick="javascript:MultipleDiscountApply('dValue','pKey','dCode','dName','carNum','dKind','count',remark)"
 // 따옴표로 감싼 인자를 순서대로 추출. 멀티라인 태그라도 onclick 한 줄에 인자가 모두 있음.
@@ -193,7 +207,11 @@ export async function checkCarStatuses(
         }
       }
 
-      const baseFields = { entryTime, entryAt, quotaAllDay, quotaHourly };
+      // 4자리 충돌 감지: 시스템이 매칭한 실제 번호판이 등록 번호판과 다르면 경고용으로 노출
+      const sysPlate = parseMatchedPlate(html) ?? candidates[0]?.plate;
+      const matchedPlate = sysPlate && normalizePlate(sysPlate) !== normPlate ? sysPlate : undefined;
+
+      const baseFields = { entryTime, entryAt, quotaAllDay, quotaHourly, matchedPlate };
 
       if (applied) {
         emit({

@@ -318,13 +318,14 @@ export default function Home() {
     setShowSettings(false);
   }
 
-  function applyStatusAndAutoSelect(newMap: Record<string, CarStatus>) {
+  function applyStatusAndAutoSelect(newMap: Record<string, CarStatus>, mode: 'auto' | 'clear' = 'auto') {
     setStatusMap(newMap);
-    // 입차중(등록 전) 차량만 자동 선택. 단, 끝4자리만 일치하는 다른 차량(matchedPlate)은
-    // 자동 선택 제외 — 사용자가 직접 확인 후 체크해야 등록되도록 (오등록 방지).
+    // 'auto'(라이브 현황조회): 입차중(등록전, matchedPlate 없는) 차량만 자동 선택.
+    // 'clear'(fp_logs 기록 복원): 선택 모두 해제 — 오래된 기록 복원으로 충돌차/스테일 차량이
+    //   자동 선택돼 오등록되는 것 방지. 신선한 선택은 현황조회로만.
     setCars((prev) => prev.map((c) => ({
       ...c,
-      selected: newMap[c.plate]?.status === "entered" && !newMap[c.plate]?.matchedPlate,
+      selected: mode === 'auto' && newMap[c.plate]?.status === "entered" && !newMap[c.plate]?.matchedPlate,
     })));
   }
 
@@ -361,7 +362,12 @@ export default function Home() {
       console.error(e);
     } finally {
       setCheckingStatus(false);
-      applyStatusAndAutoSelect(collected);
+      // 결과가 하나라도 있을 때만 반영/자동선택. 조회 실패(빈 결과) 시 기존 상태·수동 선택 보존.
+      if (Object.keys(collected).length > 0) {
+        applyStatusAndAutoSelect(collected);
+      } else {
+        setToast({ msg: '현황 조회 실패 — 네트워크/설정을 확인하세요 (선택 유지됨)', ok: false });
+      }
     }
   }
 
@@ -396,7 +402,7 @@ export default function Home() {
           };
         }
       }
-      applyStatusAndAutoSelect(map);
+      applyStatusAndAutoSelect(map, 'clear');
     }
     setCheckingStatus(false);
   }
@@ -940,7 +946,11 @@ export default function Home() {
         {(() => {
           if (checkingStatus || Object.keys(statusMap).length === 0) return null;
           const enteredCount = cars.filter(c => statusMap[c.plate]?.status === "entered" && !statusMap[c.plate]?.matchedPlate).length;
-          const mismatchCount = cars.filter(c => statusMap[c.plate]?.matchedPlate).length;
+          // 등록 대기(입차중/잔여없음)인 충돌 차량만 카운트 — 이미 등록완료된 충돌차는 제외
+          const mismatchCount = cars.filter(c => {
+            const st = statusMap[c.plate];
+            return st?.matchedPlate && (st.status === "entered" || st.status === "no_quota");
+          }).length;
           if (enteredCount === 0 && mismatchCount === 0) return null;
           return (
             <div className="space-y-2">
@@ -1152,10 +1162,11 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
     else if (s.appliedKind === "hourly") label = "등록완료 · 시간권";
   }
 
-  // 끝4자리만 일치하는 다른 차량이면 배지를 주황 경고로 바꿔 실제 차량번호를 전면에 노출
-  // (일반 '입차중'과 헷갈리지 않게 + 자동선택 제외됨을 시각적으로 구분)
+  // 끝4자리만 일치하는 다른 차량 경고는 '등록 대기'(입차중/잔여없음) 상태에서만 띄운다.
+  // registered(등록완료)에는 적용 안 함 — 이미 그 차량에 등록된 것이므로 '등록완료'를 그대로 표시.
+  const showMismatch = !!s.matchedPlate && (s.status === "entered" || s.status === "no_quota");
   let badgeCls = cls;
-  if (s.matchedPlate) {
+  if (showMismatch) {
     badgeCls = "bg-orange-900/60 text-orange-300 border border-orange-600/70";
     label = `⚠ ${s.matchedPlate}`;
   }
@@ -1192,7 +1203,7 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
           {subParts.join(" · ")}
         </span>
       )}
-      {s.matchedPlate && (
+      {showMismatch && (
         <span className="text-[10px] text-orange-400 font-medium px-0.5" title={`등록한 번호와 끝 4자리만 같은 다른 차량(${s.matchedPlate})입니다. 자동선택 제외 — 직접 체크 시 이 차량에 등록됩니다.`}>
           끝4자리만 일치 (다른 차량) · 자동선택 안 됨
         </span>

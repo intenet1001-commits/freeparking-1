@@ -1,4 +1,4 @@
-import { CarInput, EmitFn, getLast4, normalizePlate, extractCandidates } from './register';
+import { CarInput, EmitFn, getLast4, normalizePlate, platesMatch, extractCandidates } from './register';
 import { ajparkLogin, searchCar, mergeCookies, extractSetCookies, buildBaseUrl, UA } from './ajpark-http';
 import {
   parseEntryTime,
@@ -161,16 +161,16 @@ export async function registerCarsHttp(
       // 차단하지 않고 실제 입차 차량에 그대로 등록하되, 어떤 차에 적용됐는지 메시지에 명시.
       const sysPlate = parseMatchedPlate(html) ?? extractCandidates(html)[0]?.plate;
       const display = sysPlate ?? plate;
-      const matchNote = sysPlate && normalizePlate(sysPlate) !== normPlate ? ` (끝4자리 일치)` : '';
+      const matchNote = sysPlate && !platesMatch(sysPlate, plate) ? ` (끝4자리 일치)` : '';
 
       // 차량별 권종 선택 (ticketChoice=dCode). 미지정이면 종일권 기본.
       const { btn: target, requested } = selectButton(buttons, car.ticketChoice);
       if (!target) {
         const avail = buttons.map(b => `${b.name}(${b.quota})`).join(', ');
         if (requested) {
-          emit({ plate, status: 'failed', message: `선택 권종 없음 — 가능: ${avail}${entrySuffix}`, entryTime, entryAt });
+          emit({ plate, status: 'failed', message: `${display} 선택 권종 없음 — 가능: ${avail}${matchNote}${entrySuffix}`, entryTime, entryAt });
         } else {
-          emit({ plate, status: 'failed', message: `종일권 없음 — 권종 선택 필요 (가능: ${avail})${entrySuffix}`, entryTime, entryAt });
+          emit({ plate, status: 'failed', message: `${display} 종일권 없음 — 권종 선택 필요 (가능: ${avail})${matchNote}${entrySuffix}`, entryTime, entryAt });
         }
         continue;
       }
@@ -195,7 +195,7 @@ export async function registerCarsHttp(
       // 차감방식: 실측 4개 버튼 전부 '매수차감'. 그 외(숙박 등)는 다른 엔드포인트라 수동 처리 안내.
       const dKind = target.dKind || '매수차감';
       if (!dKind.includes('매수차감')) {
-        emit({ plate, status: 'failed', message: `${btnLabel} 권종 종류(${dKind}) 자동등록 미지원 — 수동 등록 필요${entrySuffix}`, entryTime, entryAt });
+        emit({ plate, status: 'failed', message: `${display} ${btnLabel} 권종 종류(${dKind}) 자동등록 미지원 — 수동 등록 필요${matchNote}${entrySuffix}`, entryTime, entryAt });
         continue;
       }
 
@@ -203,7 +203,7 @@ export async function registerCarsHttp(
       const pKeyFromUrl = finalUrl.match(/[?&]pKey=([^&]+)/);
       const pKey = pKeyFromUrl ? decodeURIComponent(pKeyFromUrl[1]) : target.pKey;
       if (!pKey || !target.dCode) {
-        emit({ plate, status: 'failed', message: `등록 정보 추출 실패 (pKey/dCode)` });
+        emit({ plate, status: 'failed', message: `${display} 등록 정보 추출 실패 (pKey/dCode)${matchNote}${entrySuffix}`, entryTime, entryAt });
         continue;
       }
 
@@ -220,9 +220,10 @@ export async function registerCarsHttp(
       cookieJar = mergeCookies(cookieJar, extractSetCookies(clickResp.headers));
       const afterText = (await clickResp.text()).replace(/<[^>]+>/g, ' ');
 
-      // 성공판정: 등록 성공 시 discountApply.cs?month=...(달력)로 리다이렉트 (역공학 확인).
-      // '승인'/'완료' 텍스트는 보조 신호 — 라이브 1회 실등록으로 month= 잔류 재확인 권장.
-      if (clickResp.url.includes('month=') || afterText.includes('승인') || afterText.includes('완료')) {
+      // 성공판정: 등록 성공 시 discountApplyProcRepeat → discountApply.cs?month=...(달력) 리다이렉트 (역공학 확인).
+      // ⚠ '승인'/'완료' 텍스트 폴백은 제거 — discountApply 페이지에 '승인 내역/승인 시각' 등 정적
+      //   헤더가 상시 존재해 실패를 성공으로 오판함. month= 가 실측 확인된 유일한 신뢰 신호.
+      if (clickResp.url.includes('month=')) {
         emit({
           plate, status: 'success',
           message: `${display} ${btnLabel} 등록 완료${matchNote}${entrySuffix}`,

@@ -27,6 +27,15 @@ export function normalizePlate(plate: string): string {
   return plate.replace(/[\s\-]/g, '').toUpperCase();
 }
 
+// 두 번호판이 같은 차량인지. 완전 일치 또는 한쪽이 다른 쪽의 접미(예: 지역접두어
+// '서울12가1234' vs '12가1234')면 동일 차량으로 간주 → 동일 차량 false positive 방지.
+// '228머7491' vs '경기38사7491'처럼 접미 관계가 아니면 다른 차량(충돌).
+export function platesMatch(a: string, b: string): boolean {
+  const na = normalizePlate(a), nb = normalizePlate(b);
+  if (!na || !nb) return false;
+  return na === nb || na.endsWith(nb) || nb.endsWith(na);
+}
+
 export function getLast4(plate: string): string {
   const digits = plate.replace(/\D/g, '');
   return digits.length >= 4 ? digits.slice(-4) : plate.trim();

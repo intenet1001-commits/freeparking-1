@@ -1,4 +1,4 @@
-import { getLast4, normalizePlate, extractCandidates } from './register';
+import { getLast4, normalizePlate, platesMatch, extractCandidates } from './register';
 import { ajparkLogin, searchCar } from './ajpark-http';
 
 export type TicketKind = 'allDay' | 'hourly';
@@ -209,7 +209,7 @@ export async function checkCarStatuses(
 
       // 4자리 충돌 감지: 시스템이 매칭한 실제 번호판이 등록 번호판과 다르면 경고용으로 노출
       const sysPlate = parseMatchedPlate(html) ?? candidates[0]?.plate;
-      const matchedPlate = sysPlate && normalizePlate(sysPlate) !== normPlate ? sysPlate : undefined;
+      const matchedPlate = sysPlate && !platesMatch(sysPlate, plate) ? sysPlate : undefined;
 
       const baseFields = { entryTime, entryAt, quotaAllDay, quotaHourly, matchedPlate };
 

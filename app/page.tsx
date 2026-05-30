@@ -384,23 +384,21 @@ export default function Home() {
     if (data) {
       const map: Record<string, CarStatus> = {};
       for (const row of data) {
-        if (!map[row.plate]) {
-          const s = row.status as CarStatus["status"];
-          map[row.plate] = {
-            status: ["not_entered", "entered", "registered", "no_quota", "multi_car", "error"].includes(s)
-              ? s
-              : row.status === "success"
-              ? "registered"
-              : row.status === "skipped" || row.status === "duplicate"
-              ? "registered"
-              : row.status === "failed"
-              ? "error"
-              : "not_entered",
-            message: row.message,
-            checkedAt: new Date(row.created_at).getTime(),
-            isLast: true,
-          };
-        }
+        if (map[row.plate]) continue;
+        if (row.status === "failed") continue; // stale 실패 기록은 복원 안 함 (오류 배지 방지)
+        const s = row.status as CarStatus["status"];
+        map[row.plate] = {
+          status: ["not_entered", "entered", "registered", "no_quota", "multi_car", "error"].includes(s)
+            ? s
+            : row.status === "success"
+            ? "registered"
+            : row.status === "skipped" || row.status === "duplicate"
+            ? "registered"
+            : "not_entered",
+          message: row.message,
+          checkedAt: new Date(row.created_at).getTime(),
+          isLast: true,
+        };
       }
       applyStatusAndAutoSelect(map, 'clear');
     }
@@ -594,6 +592,16 @@ export default function Home() {
       setPwError(true);
     }
   }
+
+  // 현황 조회 후 주차권 잔여 매수 요약 (시스템 공통값). fp_logs 복원 데이터(isLast)는 제외.
+  const quotaSummary = (() => {
+    for (const st of Object.values(statusMap)) {
+      if (!st.isLast && (st.quotaAllDay !== undefined || st.quotaHourly !== undefined)) {
+        return { allDay: st.quotaAllDay, hourly: st.quotaHourly };
+      }
+    }
+    return null;
+  })();
 
   const selectedCount = cars.filter((c) => c.selected).length;
   const allSelected = cars.length > 0 && cars.every((c) => c.selected);
@@ -935,6 +943,25 @@ export default function Home() {
               <><Search className="w-4 h-4" />현황 조회</>
             )}
           </button>
+        )}
+
+        {/* 주차권 잔여 매수 요약 (현황 조회 후에만 표시) */}
+        {quotaSummary && !checkingStatus && (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5 flex items-center gap-3 text-xs">
+            <span className="text-gray-500 font-medium shrink-0">주차권 잔여</span>
+            <div className="flex items-center gap-4 flex-wrap">
+              {quotaSummary.allDay !== undefined && (
+                <span className={quotaSummary.allDay > 0 ? "text-green-400" : "text-gray-600"}>
+                  종일권 <span className="font-bold">{quotaSummary.allDay}</span>매
+                </span>
+              )}
+              {quotaSummary.hourly !== undefined && (
+                <span className={quotaSummary.hourly > 0 ? "text-blue-400" : "text-gray-600"}>
+                  시간권 <span className="font-bold">{quotaSummary.hourly}</span>매
+                </span>
+              )}
+            </div>
+          </div>
         )}
 
         {/* 현황 조회 오류 보고 */}

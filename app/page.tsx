@@ -1168,8 +1168,8 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
         </span>
       )}
       {s.matchedPlate && (
-        <span className="text-[10px] text-orange-400 font-medium px-0.5" title={`등록된 번호판과 끝 4자리만 같은 다른 차량입니다. 등록 시 차단됩니다.`}>
-          ⚠ 실제 {s.matchedPlate} · 끝 4자리만 일치
+        <span className="text-[10px] text-orange-400 font-medium px-0.5" title={`끝 4자리로 매칭된 실제 입차 차량입니다. 등록 시 이 차량(${s.matchedPlate})에 적용됩니다.`}>
+          ⚠ 실제 {s.matchedPlate} · 끝4자리 일치 → 이 차에 등록됨
         </span>
       )}
       {s.status === "error" && s.message && (

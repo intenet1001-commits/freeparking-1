@@ -156,15 +156,12 @@ export async function registerCarsHttp(
       const entryTime = parseEntryTime(html);
       const entryAt = parseEntryDateTime(html);
       const entrySuffix = entryTime ? ` · 입차 ${entryTime}` : '';
-      const display = extractCandidates(html)[0]?.plate ?? plate;
 
-      // 4자리 충돌 차단: 시스템이 끝 4자리로 매칭한 실제 번호판이 등록 번호판과 다르면 등록 안 함.
-      // (엉뚱한 차에 무료주차가 등록되는 것 방지 — 사용자 정책)
+      // 끝 4자리로 매칭된 실제 차량 번호판. 등록 번호판과 다르면(4자리만 일치)
+      // 차단하지 않고 실제 입차 차량에 그대로 등록하되, 어떤 차에 적용됐는지 메시지에 명시.
       const sysPlate = parseMatchedPlate(html) ?? extractCandidates(html)[0]?.plate;
-      if (sysPlate && normalizePlate(sysPlate) !== normPlate) {
-        emit({ plate, status: 'failed', message: `⚠ 다른 차량(${sysPlate}) — 끝 4자리만 일치, 등록 안 함. 번호판 확인${entrySuffix}`, entryTime, entryAt });
-        continue;
-      }
+      const display = sysPlate ?? plate;
+      const matchNote = sysPlate && normalizePlate(sysPlate) !== normPlate ? ` (끝4자리 일치)` : '';
 
       // 차량별 권종 선택 (ticketChoice=dCode). 미지정이면 종일권 기본.
       const { btn: target, requested } = selectButton(buttons, car.ticketChoice);
@@ -184,11 +181,11 @@ export async function registerCarsHttp(
       // disabled: 잔여 0이면 소진(실패), 0 아니면 이미 처리됨(패스)
       if (target.disabled) {
         if (target.quota === 0) {
-          emit({ plate, status: 'failed', message: `${btnLabel} 잔여 매수 없음${entrySuffix}`, entryTime, entryAt });
+          emit({ plate, status: 'failed', message: `${display} ${btnLabel} 잔여 매수 없음${matchNote}${entrySuffix}`, entryTime, entryAt });
         } else {
           emit({
             plate, status: 'skipped',
-            message: `이미 오늘 ${btnLabel} 처리됨${entrySuffix}`,
+            message: `${display} 이미 오늘 ${btnLabel} 처리됨${matchNote}${entrySuffix}`,
             entryTime, entryAt, appliedName: btnLabel, appliedKind,
           });
         }
@@ -228,11 +225,11 @@ export async function registerCarsHttp(
       if (clickResp.url.includes('month=') || afterText.includes('승인') || afterText.includes('완료')) {
         emit({
           plate, status: 'success',
-          message: `${display} ${btnLabel} 등록 완료${entrySuffix}`,
+          message: `${display} ${btnLabel} 등록 완료${matchNote}${entrySuffix}`,
           entryTime, entryAt, appliedName: btnLabel, appliedKind,
         });
       } else {
-        emit({ plate, status: 'failed', message: `${btnLabel} 등록 실패 (응답: ${afterText.slice(0, 60).trim()})`, entryTime, entryAt });
+        emit({ plate, status: 'failed', message: `${display} ${btnLabel} 등록 실패 (응답: ${afterText.slice(0, 60).trim()})`, entryTime, entryAt });
       }
     } catch (e) {
       const isTimeout = String(e).includes('timeout') || String(e).includes('aborted') || (e as Error)?.name === 'TimeoutError';

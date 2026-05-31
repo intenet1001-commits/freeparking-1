@@ -332,7 +332,8 @@ export default function Home() {
     setCars((prev) => prev.map((c) => {
       const st = newMap[c.plate];
       let ticketChoice = c.ticketChoice;
-      if (mode === 'auto' && st?.status === 'entered' && st.entryAt) {
+      // 저장된 기본값이 없을 때만 경과시간 기반 추천 적용 (명시 기본값 보존)
+      if (mode === 'auto' && st?.status === 'entered' && st.entryAt && !c.ticketChoice) {
         const elapsedMins = Math.max(0, Math.floor((Date.now() - new Date(st.entryAt).getTime()) / 60000));
         ticketChoice = recommendTicketByElapsed(elapsedMins);
       }
@@ -910,11 +911,11 @@ export default function Home() {
                         {statusMap[car.plate] && (
                           <CarStatusBadge s={statusMap[car.plate]} now={now} />
                         )}
-                        {/* 차량별 등록 권종 선택 (종일권 기본) */}
+                        {/* 차량별 기본 권종 (저장 → 현황조회 후에도 유지됨) */}
                         <select
                           value={car.ticketChoice ?? "00005"}
                           onChange={(e) => saveTicketChoice(car.id, e.target.value)}
-                          title="등록할 권종 선택"
+                          title="기본 권종 (저장됨 — 현황조회 후에도 유지)"
                           className="bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500 cursor-pointer"
                         >
                           {TICKET_OPTIONS.map((o) => (

@@ -983,31 +983,6 @@ export default function Home() {
           <StatusCheckErrorButton statusMap={statusMap} settings={settings} />
         )}
 
-        {/* 미등록 입차 차량 안내 배너 */}
-        {(() => {
-          if (checkingStatus || Object.keys(statusMap).length === 0) return null;
-          const enteredCount = cars.filter(c => statusMap[c.plate]?.status === "entered").length;
-          if (enteredCount === 0) return null;
-          return (
-            <div className="bg-blue-950/40 border border-blue-700/50 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-blue-300">
-                  {enteredCount}대 입차 미등록 → 자동 선택됨
-                </p>
-                <p className="text-xs text-blue-400/60 mt-0.5">아래 실행 버튼으로 바로 등록하세요</p>
-              </div>
-              <button
-                onClick={runRegistration}
-                disabled={running}
-                className="shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50"
-              >
-                {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                지금 등록
-              </button>
-            </div>
-          );
-        })()}
-
         {/* 실행 버튼 */}
         <button
           onClick={runRegistration}

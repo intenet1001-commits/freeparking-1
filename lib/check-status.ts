@@ -207,11 +207,14 @@ export async function checkCarStatuses(
         }
       }
 
-      // 4자리 충돌 감지: 시스템이 매칭한 실제 번호판이 등록 번호판과 다르면 경고용으로 노출
+      // 전체 번호판 일치 확인: 끝 4자리만 같은 다른 차량이면 미입차로 처리
       const sysPlate = parseMatchedPlate(html) ?? candidates[0]?.plate;
-      const matchedPlate = sysPlate && !platesMatch(sysPlate, plate) ? sysPlate : undefined;
+      if (sysPlate && !platesMatch(sysPlate, plate)) {
+        emit({ plate, status: 'not_entered', message: '입차 없음 (번호판 불일치)' });
+        continue;
+      }
 
-      const baseFields = { entryTime, entryAt, quotaAllDay, quotaHourly, matchedPlate };
+      const baseFields = { entryTime, entryAt, quotaAllDay, quotaHourly };
 
       if (applied) {
         emit({

@@ -157,20 +157,22 @@ export async function registerCarsHttp(
       const entryAt = parseEntryDateTime(html);
       const entrySuffix = entryTime ? ` · 입차 ${entryTime}` : '';
 
-      // 끝 4자리로 매칭된 실제 차량 번호판. 등록 번호판과 다르면(4자리만 일치)
-      // 차단하지 않고 실제 입차 차량에 그대로 등록하되, 어떤 차에 적용됐는지 메시지에 명시.
+      // 전체 번호판 일치 확인: 끝 4자리만 같은 다른 차량이면 미입차로 처리
       const sysPlate = parseMatchedPlate(html) ?? extractCandidates(html)[0]?.plate;
+      if (sysPlate && !platesMatch(sysPlate, plate)) {
+        emit({ plate, status: 'not_entered', message: '입차 없음 (번호판 불일치)', entryTime, entryAt });
+        continue;
+      }
       const display = sysPlate ?? plate;
-      const matchNote = sysPlate && !platesMatch(sysPlate, plate) ? ` (끝4자리 일치)` : '';
 
       // 차량별 권종 선택 (ticketChoice=dCode). 미지정이면 종일권 기본.
       const { btn: target, requested } = selectButton(buttons, car.ticketChoice);
       if (!target) {
         const avail = buttons.map(b => `${b.name}(${b.quota})`).join(', ');
         if (requested) {
-          emit({ plate, status: 'failed', message: `${display} 선택 권종 없음 — 가능: ${avail}${matchNote}${entrySuffix}`, entryTime, entryAt });
+          emit({ plate, status: 'failed', message: `${display} 선택 권종 없음 — 가능: ${avail}${entrySuffix}`, entryTime, entryAt });
         } else {
-          emit({ plate, status: 'failed', message: `${display} 종일권 없음 — 권종 선택 필요 (가능: ${avail})${matchNote}${entrySuffix}`, entryTime, entryAt });
+          emit({ plate, status: 'failed', message: `${display} 종일권 없음 — 권종 선택 필요 (가능: ${avail})${entrySuffix}`, entryTime, entryAt });
         }
         continue;
       }
@@ -181,11 +183,11 @@ export async function registerCarsHttp(
       // disabled: 잔여 0이면 소진(실패), 0 아니면 이미 처리됨(패스)
       if (target.disabled) {
         if (target.quota === 0) {
-          emit({ plate, status: 'failed', message: `${display} ${btnLabel} 잔여 매수 없음${matchNote}${entrySuffix}`, entryTime, entryAt });
+          emit({ plate, status: 'failed', message: `${display} ${btnLabel} 잔여 매수 없음${entrySuffix}`, entryTime, entryAt });
         } else {
           emit({
             plate, status: 'skipped',
-            message: `${display} 이미 오늘 ${btnLabel} 처리됨${matchNote}${entrySuffix}`,
+            message: `${display} 이미 오늘 ${btnLabel} 처리됨${entrySuffix}`,
             entryTime, entryAt, appliedName: btnLabel, appliedKind,
           });
         }
@@ -195,7 +197,7 @@ export async function registerCarsHttp(
       // 차감방식: 실측 4개 버튼 전부 '매수차감'. 그 외(숙박 등)는 다른 엔드포인트라 수동 처리 안내.
       const dKind = target.dKind || '매수차감';
       if (!dKind.includes('매수차감')) {
-        emit({ plate, status: 'failed', message: `${display} ${btnLabel} 권종 종류(${dKind}) 자동등록 미지원 — 수동 등록 필요${matchNote}${entrySuffix}`, entryTime, entryAt });
+        emit({ plate, status: 'failed', message: `${display} ${btnLabel} 권종 종류(${dKind}) 자동등록 미지원 — 수동 등록 필요${entrySuffix}`, entryTime, entryAt });
         continue;
       }
 
@@ -203,7 +205,7 @@ export async function registerCarsHttp(
       const pKeyFromUrl = finalUrl.match(/[?&]pKey=([^&]+)/);
       const pKey = pKeyFromUrl ? decodeURIComponent(pKeyFromUrl[1]) : target.pKey;
       if (!pKey || !target.dCode) {
-        emit({ plate, status: 'failed', message: `${display} 등록 정보 추출 실패 (pKey/dCode)${matchNote}${entrySuffix}`, entryTime, entryAt });
+        emit({ plate, status: 'failed', message: `${display} 등록 정보 추출 실패 (pKey/dCode)${entrySuffix}`, entryTime, entryAt });
         continue;
       }
 
@@ -226,7 +228,7 @@ export async function registerCarsHttp(
       if (clickResp.url.includes('month=')) {
         emit({
           plate, status: 'success',
-          message: `${display} ${btnLabel} 등록 완료${matchNote}${entrySuffix}`,
+          message: `${display} ${btnLabel} 등록 완료${entrySuffix}`,
           entryTime, entryAt, appliedName: btnLabel, appliedKind,
         });
       } else {

@@ -145,7 +145,10 @@ export default function Home() {
         setCars(
           data
             .filter((r) => !SPECIAL_ROWS.has(r.plate))
-            .map((r) => ({ ...r, selected: true, ticketChoice: choiceMap[r.id] }))
+            .map((r) => {
+              const last4 = r.plate.replace(/[\s\-]/g, '').slice(-4);
+              return { ...r, selected: true, ticketChoice: last4 === '6592' ? choiceMap[r.id] : undefined };
+            })
         );
         // 설정: __settings__ 행의 label JSON. 없으면 localStorage 폴백
         const sRow = data.find((r) => r.plate === "__settings__");
@@ -254,7 +257,10 @@ export default function Home() {
         setCars(
           data
             .filter((r) => !SPECIAL_ROWS.has(r.plate))
-            .map((r) => ({ ...r, selected: true, ticketChoice: choiceMap[r.id] }))
+            .map((r) => {
+              const last4 = r.plate.replace(/[\s\-]/g, '').slice(-4);
+              return { ...r, selected: true, ticketChoice: last4 === '6592' ? choiceMap[r.id] : undefined };
+            })
         );
       }
     }
@@ -267,9 +273,12 @@ export default function Home() {
     await supabase.from("fp_cars").delete().eq("id", id);
     setCars((prev) => {
       const next = prev.filter((c) => c.id !== id);
-      // 삭제 차량의 권종 선택을 __ticketchoices__에서도 정리 (고아 키 방지)
+      // 삭제 차량의 권종 선택을 __ticketchoices__에서도 정리 (고아 키 방지; 6592만 영속)
       const map: Record<string, string> = {};
-      for (const c of next) if (c.ticketChoice) map[c.id] = c.ticketChoice;
+      for (const c of next) {
+        const last4 = c.plate.replace(/[\s\-]/g, '').slice(-4);
+        if (last4 === '6592' && c.ticketChoice) map[c.id] = c.ticketChoice;
+      }
       supabase
         .from("fp_cars")
         .upsert({ plate: "__ticketchoices__", label: JSON.stringify(map) }, { onConflict: "plate" });
@@ -292,7 +301,10 @@ export default function Home() {
     setCars((prev) => {
       const next = prev.map((c) => (c.id === id ? { ...c, ticketChoice: dCode } : c));
       const map: Record<string, string> = {};
-      for (const c of next) if (c.ticketChoice) map[c.id] = c.ticketChoice;
+      for (const c of next) {
+        const last4 = c.plate.replace(/[\s\-]/g, '').slice(-4);
+        if (last4 === '6592' && c.ticketChoice) map[c.id] = c.ticketChoice;
+      }
       supabase
         .from("fp_cars")
         .upsert({ plate: "__ticketchoices__", label: JSON.stringify(map) }, { onConflict: "plate" })

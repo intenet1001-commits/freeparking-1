@@ -145,10 +145,7 @@ export default function Home() {
         setCars(
           data
             .filter((r) => !SPECIAL_ROWS.has(r.plate))
-            .map((r) => {
-              const last4 = r.plate.replace(/[\s\-]/g, '').slice(-4);
-              return { ...r, selected: true, ticketChoice: last4 === '6592' ? choiceMap[r.id] : undefined };
-            })
+            .map((r) => ({ ...r, selected: true, ticketChoice: undefined }))
         );
         // 설정: __settings__ 행의 label JSON. 없으면 localStorage 폴백
         const sRow = data.find((r) => r.plate === "__settings__");
@@ -257,10 +254,7 @@ export default function Home() {
         setCars(
           data
             .filter((r) => !SPECIAL_ROWS.has(r.plate))
-            .map((r) => {
-              const last4 = r.plate.replace(/[\s\-]/g, '').slice(-4);
-              return { ...r, selected: true, ticketChoice: last4 === '6592' ? choiceMap[r.id] : undefined };
-            })
+            .map((r) => ({ ...r, selected: true, ticketChoice: undefined }))
         );
       }
     }
@@ -273,15 +267,6 @@ export default function Home() {
     await supabase.from("fp_cars").delete().eq("id", id);
     setCars((prev) => {
       const next = prev.filter((c) => c.id !== id);
-      // 삭제 차량의 권종 선택을 __ticketchoices__에서도 정리 (고아 키 방지; 6592만 영속)
-      const map: Record<string, string> = {};
-      for (const c of next) {
-        const last4 = c.plate.replace(/[\s\-]/g, '').slice(-4);
-        if (last4 === '6592' && c.ticketChoice) map[c.id] = c.ticketChoice;
-      }
-      supabase
-        .from("fp_cars")
-        .upsert({ plate: "__ticketchoices__", label: JSON.stringify(map) }, { onConflict: "plate" });
       return next;
     });
   }
@@ -295,22 +280,8 @@ export default function Home() {
     setEditingId(null);
   }
 
-  // 차량별 권종 선택 저장. 컬럼 추가 없이 __ticketchoices__ 행에 { carId: dCode } JSON으로 영속.
-  // 함수형 업데이트로 prev(최신 상태)에서 map을 빌드 → 연속 변경 시 직전 선택 유실 방지.
   function saveTicketChoice(id: string, dCode: string) {
-    setCars((prev) => {
-      const next = prev.map((c) => (c.id === id ? { ...c, ticketChoice: dCode } : c));
-      const map: Record<string, string> = {};
-      for (const c of next) {
-        const last4 = c.plate.replace(/[\s\-]/g, '').slice(-4);
-        if (last4 === '6592' && c.ticketChoice) map[c.id] = c.ticketChoice;
-      }
-      supabase
-        .from("fp_cars")
-        .upsert({ plate: "__ticketchoices__", label: JSON.stringify(map) }, { onConflict: "plate" })
-        .then(({ error }) => { if (error) setToast({ msg: `권종 저장 실패: ${error.message}`, ok: false }); });
-      return next;
-    });
+    setCars((prev) => prev.map((c) => (c.id === id ? { ...c, ticketChoice: dCode } : c)));
   }
 
   function toggleCar(id: string) {
@@ -344,13 +315,9 @@ export default function Home() {
     setCars((prev) => prev.map((c) => {
       const st = newMap[c.plate];
       let ticketChoice = c.ticketChoice;
-      // 저장된 기본값이 없을 때: 6592번만 경과시간 추천, 나머지는 종일권 기본.
+      // 입차중(등록전) 차량: 종일권 기본.
       if (mode === 'auto' && st?.status === 'entered' && !c.ticketChoice) {
-        const last4 = c.plate.replace(/[\s\-]/g, '').slice(-4);
-        if (last4 === '6592' && st.entryAt) {
-          const elapsedMins = Math.max(0, Math.floor((Date.now() - new Date(st.entryAt).getTime()) / 60000));
-          ticketChoice = recommendTicketByElapsed(elapsedMins);
-        } else {
+        {
           ticketChoice = '00005'; // 종일권
         }
       }

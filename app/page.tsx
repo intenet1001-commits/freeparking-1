@@ -47,6 +47,7 @@ type CarStatus = {
   appliedKind?: 'allDay' | 'hourly';
   quotaAllDay?: number;
   quotaHourly?: number;
+  exitedAfterRegistration?: boolean; // 등록완료 후 출차한 경우 (registered→not_entered 전환 감지)
 };
 
 // 차량별 선택 가능 권종 (실측 dCode). 종일권 기본.
@@ -333,6 +334,7 @@ export default function Home() {
     const plates = cars.map((c) => c.plate);
     if (plates.length === 0) return;
     setCheckingStatus(true);
+    const prevStatusMap = statusMap; // 출차 감지: 이전 상태 보존 후 초기화
     setStatusMap({});
     const collected: Record<string, CarStatus> = {};
     try {
@@ -344,8 +346,12 @@ export default function Home() {
       await readSSE(resp, (data) => {
         if (data.done || !data.plate) return;
         const plate = data.plate as string;
+        const newStatus = data.status as CarStatus["status"];
+        // 등록완료(registered)였다가 미입차(not_entered)로 전환 = 출차완료
+        const exitedAfterRegistration =
+          newStatus === 'not_entered' && prevStatusMap[plate]?.status === 'registered';
         collected[plate] = {
-          status: data.status as CarStatus["status"],
+          status: newStatus,
           message: data.message as string,
           checkedAt: Date.now(),
           entryTime: data.entryTime as string | undefined,
@@ -354,6 +360,7 @@ export default function Home() {
           appliedKind: data.appliedKind as 'allDay' | 'hourly' | undefined,
           quotaAllDay: data.quotaAllDay as number | undefined,
           quotaHourly: data.quotaHourly as number | undefined,
+          exitedAfterRegistration: exitedAfterRegistration || undefined,
         };
         setStatusMap({ ...collected });
       });
@@ -1135,6 +1142,23 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
     multi_car:   ["bg-orange-900/50 text-orange-400 border border-orange-800/50", "복수차량"],
     error:       ["bg-red-900/50 text-red-400 border border-red-800/50", "오류"],
   };
+
+  // 등록완료 후 출차한 경우: 별도 배지 스타일
+  if (s.exitedAfterRegistration) {
+    const [cls, baseLabel] = ["bg-blue-900/50 text-blue-400 border border-blue-800/50", "출차완료"];
+    const checkTime = s.checkedAt
+      ? new Date(s.checkedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+      : null;
+    return (
+      <span className="inline-flex flex-col gap-0.5">
+        <span className={clsx("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium", cls)}>
+          {baseLabel}
+          {checkTime && <span className="opacity-60 font-normal">{checkTime}</span>}
+        </span>
+      </span>
+    );
+  }
+
   const [cls, baseLabel] = map[s.status] ?? ["bg-gray-800 text-gray-500", s.status];
 
   // 등록완료일 때 종일권/시간권 종류를 라벨에 추가

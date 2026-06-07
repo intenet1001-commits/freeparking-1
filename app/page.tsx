@@ -80,6 +80,13 @@ function formatElapsed(entryAtISO?: string, now?: number): string | null {
   return h > 0 ? `${h}시간 ${m}분 경과` : `${m}분 경과`;
 }
 
+function formatTimeWithDay(tsMs: number): string {
+  const d = new Date(tsMs);
+  const day = d.toLocaleDateString("ko-KR", { weekday: "narrow", timeZone: "Asia/Seoul" });
+  const time = d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul" });
+  return `${day} ${time}`;
+}
+
 type LogEntry = {
   id: string;
   plate: string;
@@ -176,11 +183,15 @@ export default function Home() {
     }
   }, [logs]);
 
-  // 차량 목록 첫 로드 시 fp_logs에서 마지막 상태 복원 (배지 초기화)
+  // 차량 목록 첫 로드 시: 설정 완료면 즉시 라이브 조회, 미설정이면 fp_logs 기록 복원
   useEffect(() => {
     if (cars.length > 0 && !initialStatusLoaded.current) {
       initialStatusLoaded.current = true;
-      loadLastStatus();
+      if (settings.url && settings.adminId && settings.adminPw) {
+        runStatusCheck();
+      } else {
+        loadLastStatus();
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cars.length]);
@@ -1160,16 +1171,18 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
 
   // 등록완료 후 출차한 경우: 별도 배지 스타일
   if (s.exitedAfterRegistration) {
-    const [cls, baseLabel] = ["bg-blue-900/50 text-blue-400 border border-blue-800/50", "출차완료"];
-    const checkTime = s.checkedAt
-      ? new Date(s.checkedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
-      : null;
+    const cls = "bg-blue-900/50 text-blue-400 border border-blue-800/50";
+    const checkTime = s.checkedAt ? formatTimeWithDay(s.checkedAt) : null;
     return (
       <span className="inline-flex flex-col gap-0.5">
         <span className={clsx("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium", cls)}>
-          {baseLabel}
-          {checkTime && <span className="opacity-60 font-normal">{checkTime}</span>}
+          출차완료
         </span>
+        {checkTime && (
+          <span className="text-[10px] text-gray-400/80 font-normal px-0.5">
+            출차확인 {checkTime}
+          </span>
+        )}
       </span>
     );
   }
@@ -1183,15 +1196,16 @@ function CarStatusBadge({ s, now }: { s: CarStatus; now: number }) {
     else if (s.appliedKind === "hourly") label = "등록완료 · 시간권";
   }
 
-  const checkTime = s.checkedAt
-    ? new Date(s.checkedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
-    : null;
+  const checkTime = s.checkedAt ? formatTimeWithDay(s.checkedAt) : null;
 
   // 보조 정보 라인
   const subParts: string[] = [];
-  if (s.entryTime) subParts.push(`입차 ${s.entryTime}`);
-  // 입차중/잔여없음일 때 경과시간 표시 (요구사항 A)
-  if (s.status === "entered" || s.status === "no_quota") {
+  if (s.entryAt) {
+    subParts.push(`입차 ${formatTimeWithDay(new Date(s.entryAt).getTime())}`);
+  } else if (s.entryTime) {
+    subParts.push(`입차 ${s.entryTime}`);
+  }
+  if (s.status === "entered" || s.status === "no_quota" || s.status === "registered") {
     const elapsed = formatElapsed(s.entryAt, now);
     if (elapsed) subParts.push(elapsed);
   }

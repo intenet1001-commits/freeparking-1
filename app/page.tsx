@@ -334,8 +334,21 @@ export default function Home() {
     const plates = cars.map((c) => c.plate);
     if (plates.length === 0) return;
     setCheckingStatus(true);
-    const prevStatusMap = statusMap; // 출차 감지: 이전 상태 보존 후 초기화
     setStatusMap({});
+
+    // fp_logs에서 차량별 최근 등록완료 여부 조회 (새로고침 후에도 출차완료 감지 가능)
+    const { data: logRows } = await supabase
+      .from("fp_logs")
+      .select("plate, status")
+      .in("plate", plates)
+      .in("status", ["success", "skipped", "duplicate"])
+      .order("created_at", { ascending: false })
+      .limit(plates.length * 5);
+    const lastRegisteredPlates = new Set<string>();
+    for (const row of logRows ?? []) {
+      lastRegisteredPlates.add(row.plate);
+    }
+
     const collected: Record<string, CarStatus> = {};
     try {
       const resp = await fetch("/api/check-status", {
@@ -347,9 +360,9 @@ export default function Home() {
         if (data.done || !data.plate) return;
         const plate = data.plate as string;
         const newStatus = data.status as CarStatus["status"];
-        // 등록완료(registered)였다가 미입차(not_entered)로 전환 = 출차완료
+        // 최근 등록완료 기록이 있는 차량이 미입차 → 출차완료
         const exitedAfterRegistration =
-          newStatus === 'not_entered' && prevStatusMap[plate]?.status === 'registered';
+          newStatus === 'not_entered' && lastRegisteredPlates.has(plate);
         collected[plate] = {
           status: newStatus,
           message: data.message as string,

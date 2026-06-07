@@ -187,7 +187,7 @@ export default function Home() {
   useEffect(() => {
     if (cars.length > 0 && !initialStatusLoaded.current) {
       initialStatusLoaded.current = true;
-      if (settings.url && settings.adminId && settings.adminPw) {
+      if (settings.url && settings.id && settings.pw) {
         runStatusCheck();
       } else {
         loadLastStatus();

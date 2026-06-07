@@ -332,10 +332,15 @@ export default function Home() {
     setCars((prev) => prev.map((c) => {
       const st = newMap[c.plate];
       let ticketChoice = c.ticketChoice;
-      // 저장된 기본값이 없을 때만 경과시간 기반 추천 적용 (명시 기본값 보존)
-      if (mode === 'auto' && st?.status === 'entered' && st.entryAt && !c.ticketChoice) {
-        const elapsedMins = Math.max(0, Math.floor((Date.now() - new Date(st.entryAt).getTime()) / 60000));
-        ticketChoice = recommendTicketByElapsed(elapsedMins);
+      // 저장된 기본값이 없을 때: 6592번만 경과시간 추천, 나머지는 종일권 기본.
+      if (mode === 'auto' && st?.status === 'entered' && !c.ticketChoice) {
+        const last4 = c.plate.replace(/[\s\-]/g, '').slice(-4);
+        if (last4 === '6592' && st.entryAt) {
+          const elapsedMins = Math.max(0, Math.floor((Date.now() - new Date(st.entryAt).getTime()) / 60000));
+          ticketChoice = recommendTicketByElapsed(elapsedMins);
+        } else {
+          ticketChoice = '00005'; // 종일권
+        }
       }
       return {
         ...c,

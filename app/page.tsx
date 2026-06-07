@@ -336,12 +336,14 @@ export default function Home() {
     setCheckingStatus(true);
     setStatusMap({});
 
-    // fp_logs에서 차량별 최근 등록완료 여부 조회 (새로고침 후에도 출차완료 감지 가능)
+    // fp_logs에서 당일 등록완료 여부 조회 (KST 자정 기준 — 전날 기록으로 오판 방지)
+    const kstTodayStart = `${new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)}T00:00:00+09:00`;
     const { data: logRows } = await supabase
       .from("fp_logs")
       .select("plate, status")
       .in("plate", plates)
       .in("status", ["success", "skipped", "duplicate"])
+      .gte("created_at", kstTodayStart)
       .order("created_at", { ascending: false })
       .limit(plates.length * 5);
     const lastRegisteredPlates = new Set<string>();

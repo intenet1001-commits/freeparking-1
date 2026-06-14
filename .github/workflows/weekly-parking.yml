@@ -1,0 +1,29 @@
+name: 무료주차 자동등록 (매주 일요일 12시)
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'   # UTC 03:00 = KST 12:00, 일요일
+  workflow_dispatch:        # 수동 실행 (테스트용)
+
+jobs:
+  auto-register:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 무료주차 자동 조회·등록
+        env:
+          PARKING_APP_URL: ${{ secrets.PARKING_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -X GET "${PARKING_APP_URL}/api/cron/auto-register" \
+            -H "Authorization: Bearer ${CRON_SECRET}")
+          body=$(echo "$response" | head -n -1)
+          code=$(echo "$response" | tail -n 1)
+          echo "HTTP $code"
+          echo "$body" | jq . || echo "$body"
+          if [ "$code" != "200" ]; then
+            echo "::error::등록 실패 (HTTP $code)"
+            exit 1
+          fi

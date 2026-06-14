@@ -9,11 +9,5 @@
     "app/api/cron/auto-register/route.ts": {
       "maxDuration": 60
     }
-  },
-  "crons": [
-    {
-      "path": "/api/cron/auto-register",
-      "schedule": "0 3 * * 0"
-    }
-  ]
+  }
 }

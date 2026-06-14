@@ -11,12 +11,29 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      - name: 시크릿 존재 확인
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PARKING_APP_URL: ${{ secrets.PARKING_APP_URL }}
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET secret이 설정되지 않았습니다. Repository Settings > Secrets 에서 추가하세요."
+            exit 1
+          fi
+          if [ -z "${PARKING_APP_URL}" ]; then
+            echo "::error::PARKING_APP_URL secret이 설정되지 않았습니다."
+            exit 1
+          fi
+          echo "시크릿 확인 완료"
+
       - name: 무료주차 자동 조회·등록
         env:
           PARKING_APP_URL: ${{ secrets.PARKING_APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           response=$(curl -s -w "\n%{http_code}" \
+            --max-time 70 \
+            --connect-timeout 10 \
             -X GET "${PARKING_APP_URL}/api/cron/auto-register" \
             -H "Authorization: Bearer ${CRON_SECRET}")
           body=$(echo "$response" | head -n -1)

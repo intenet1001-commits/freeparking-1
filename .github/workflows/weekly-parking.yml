@@ -11,36 +11,20 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: 시크릿 존재 확인
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          PARKING_APP_URL: ${{ secrets.PARKING_APP_URL }}
-        run: |
-          if [ -z "${CRON_SECRET}" ]; then
-            echo "::error::CRON_SECRET secret이 설정되지 않았습니다. Repository Settings > Secrets 에서 추가하세요."
-            exit 1
-          fi
-          if [ -z "${PARKING_APP_URL}" ]; then
-            echo "::error::PARKING_APP_URL secret이 설정되지 않았습니다."
-            exit 1
-          fi
-          echo "시크릿 확인 완료"
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 의존성 설치
+        run: npm ci
 
       - name: 무료주차 자동 조회·등록
         env:
-          PARKING_APP_URL: ${{ secrets.PARKING_APP_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: |
-          response=$(curl -s -w "\n%{http_code}" \
-            --max-time 70 \
-            --connect-timeout 10 \
-            -X GET "${PARKING_APP_URL}/api/cron/auto-register" \
-            -H "Authorization: Bearer ${CRON_SECRET}")
-          body=$(echo "$response" | head -n -1)
-          code=$(echo "$response" | tail -n 1)
-          echo "HTTP $code"
-          echo "$body" | jq . || echo "$body"
-          if [ "$code" != "200" ]; then
-            echo "::error::등록 실패 (HTTP $code)"
-            exit 1
-          fi
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/cron-register.ts

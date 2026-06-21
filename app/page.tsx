@@ -497,6 +497,17 @@ export default function Home() {
         },
       }));
     }
+    // 미입차 확인 시 배지도 즉시 업데이트 — 이전 "입차중" 배지가 남아 혼동되는 것 방지
+    if (logStatus === 'not_entered') {
+      setStatusMap((prev) => ({
+        ...prev,
+        [plate]: {
+          status: 'not_entered',
+          message: data.message as string,
+          checkedAt: Date.now(),
+        },
+      }));
+    }
   }
 
   function copyLogs() {
@@ -875,7 +886,18 @@ export default function Home() {
             </div>
           ) : (
             <div className="divide-y divide-gray-800/50">
-              {cars.map((car) => (
+              {[...cars].sort((a, b) => {
+                const p = (plate: string) => {
+                  const s = statusMap[plate];
+                  if (!s) return 5;
+                  if (s.status === 'entered') return 0;
+                  if (s.status === 'registered' && !s.exitedAfterRegistration) return 1;
+                  if (s.exitedAfterRegistration) return 2;
+                  if (s.status === 'not_entered') return 3;
+                  return 4; // no_quota, error, multi_car
+                };
+                return p(a.plate) - p(b.plate);
+              }).map((car) => (
                 <div
                   key={car.id}
                   className={clsx(

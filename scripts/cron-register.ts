@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
 import { checkCarStatuses } from '../lib/check-status';
 import { registerCarsHttp } from '../lib/register-http';
 import type { CarInput } from '../lib/register';
@@ -57,7 +58,7 @@ async function main() {
   }
 
   const plates = carRows.map((r) => r.plate);
-  const runId = `cron-${Date.now()}`;
+  const runId = randomUUID();
 
   // 분산 뮤텍스 — 하루 1회 실행 보장
   const { error: lockErr } = await supabase.from('fp_logs').insert({

@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'crypto';
+import { timingSafeEqual, randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkCarStatuses } from '@/lib/check-status';
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
   }
 
   const plates = carRows.map((r) => r.plate);
-  const runId = `cron-${Date.now()}`;
+  const runId = randomUUID();
 
   // 하루 1회 실행 보장 — fp_logs unique index로 분산 뮤텍스
   // DDL (Supabase SQL Editor에서 1회 실행):
@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
     const checkErrors = Object.entries(statusMap)
       .filter(([, v]) => v.status === 'error')
       .map(([plate, v]) => ({
-        run_id: `${runId}-check`,
+        run_id: runId,
         plate,
         status: 'check_error',
         message: v.message,
@@ -123,7 +123,7 @@ export async function GET(req: NextRequest) {
     const noQuotaEntries = carRows
       .filter((r) => statusMap[r.plate]?.status === 'no_quota')
       .map((r) => ({
-        run_id: `${runId}-status`,
+        run_id: runId,
         plate: r.plate,
         status: 'no_quota',
         message: statusMap[r.plate].message,

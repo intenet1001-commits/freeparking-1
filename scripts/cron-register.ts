@@ -60,53 +60,53 @@ async function main() {
   const plates = carRows.map((r) => r.plate);
   const runId = randomUUID();
 
-  // 분산 뮤텍스 — 하루 1회 실행 보장
+  // ── 1단계: 현황 조회 (락 없이 — GitHub Actions 스케줄 지연 시 재시도 가능하게)
+  console.log(`[cron] 현황 조회 시작 (${plates.length}대)`);
+  const statusMap: Record<string, { status: string; message: string }> = {};
+
+  try {
+    await checkCarStatuses(url, adminId, adminPw, plates, (data) => {
+      statusMap[data.plate] = { status: data.status, message: data.message };
+      console.log(`  ${data.plate}: ${data.status} — ${data.message}`);
+    });
+  } catch (e) {
+    console.error('[cron] 현황 조회 예외:', e);
+    for (const plate of plates) {
+      statusMap[plate] = { status: 'error', message: String(e).slice(0, 120) };
+    }
+  }
+
+  // check_error / no_quota 로그
+  const errorEntries = Object.entries(statusMap)
+    .filter(([, v]) => v.status === 'error' || v.status === 'no_quota')
+    .map(([plate, v]) => ({ run_id: `${runId}-status`, plate, status: v.status, message: v.message }));
+  if (errorEntries.length > 0) {
+    await supabase.from('fp_logs').insert(errorEntries);
+  }
+
+  const toRegister: CarInput[] = carRows
+    .filter((r) => statusMap[r.plate]?.status === 'entered')
+    .map((r) => ({
+      plate: r.plate,
+      label: r.label ?? r.plate,
+      ticketChoice: choiceMap[r.id] ?? '00005',
+    }));
+
+  if (toRegister.length === 0) {
+    console.log('[cron] 입차 차량 없음 — 등록 생략 (다음 스케줄 재시도 대기)');
+    return;
+  }
+
+  // 분산 뮤텍스 — 등록 대상이 확인된 시점에만 획득 (하루 1회 등록 보장)
   const { error: lockErr } = await supabase.from('fp_logs').insert({
     run_id: runId, plate: '__cron_lock__', status: 'running', message: 'cron lock',
   });
   if (lockErr) {
-    console.log('[cron] 중복 실행 방지 — 이미 실행 중:', lockErr.code);
+    console.log('[cron] 중복 실행 방지 — 오늘 이미 등록 처리됨:', lockErr.code);
     return;
   }
 
   try {
-    // ── 1단계: 현황 조회
-    console.log(`[cron] 현황 조회 시작 (${plates.length}대)`);
-    const statusMap: Record<string, { status: string; message: string }> = {};
-
-    try {
-      await checkCarStatuses(url, adminId, adminPw, plates, (data) => {
-        statusMap[data.plate] = { status: data.status, message: data.message };
-        console.log(`  ${data.plate}: ${data.status} — ${data.message}`);
-      });
-    } catch (e) {
-      console.error('[cron] 현황 조회 예외:', e);
-      for (const plate of plates) {
-        statusMap[plate] = { status: 'error', message: String(e).slice(0, 120) };
-      }
-    }
-
-    // check_error / no_quota 로그
-    const errorEntries = Object.entries(statusMap)
-      .filter(([, v]) => v.status === 'error' || v.status === 'no_quota')
-      .map(([plate, v]) => ({ run_id: `${runId}-status`, plate, status: v.status, message: v.message }));
-    if (errorEntries.length > 0) {
-      await supabase.from('fp_logs').insert(errorEntries);
-    }
-
-    const toRegister: CarInput[] = carRows
-      .filter((r) => statusMap[r.plate]?.status === 'entered')
-      .map((r) => ({
-        plate: r.plate,
-        label: r.label ?? r.plate,
-        ticketChoice: choiceMap[r.id] ?? '00005',
-      }));
-
-    if (toRegister.length === 0) {
-      console.log('[cron] 입차 차량 없음 — 등록 생략');
-      return;
-    }
-
     // 예산 점검
     if (Date.now() - START_MS > BUDGET_MS - 30_000) {
       console.error('[cron] 예산 초과 — 등록 생략');

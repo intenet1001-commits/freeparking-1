@@ -1,9 +1,18 @@
-name: 무료주차 자동등록 (매주 일요일 12시)
+name: 무료주차 자동등록 (매주 일요일 9시~15시 매시)
 
 on:
   schedule:
-    - cron: '0 3 * * 0'   # UTC 03:00 = KST 12:00, 일요일
+    # UTC 00:00~06:00 = KST 09:00~15:00, 일요일, 매시 정각
+    # GitHub Actions의 schedule은 정시(top of hour)에 특히 지연되기 쉬워
+    # (관측: 실제 실행이 예정보다 3~5시간 늦게 발화) 1회가 아닌 매시 여러 번
+    # 시도해 입차 시간대를 놓치지 않도록 한다. 이미 등록된 차량은 'skipped'
+    # 처리되어 재실행에 부작용 없음(멱등) — concurrency로 겹침 실행만 방지.
+    - cron: '0 0-6 * * 0'
   workflow_dispatch:        # 수동 실행 (테스트용)
+
+concurrency:
+  group: weekly-parking
+  cancel-in-progress: false
 
 jobs:
   auto-register:

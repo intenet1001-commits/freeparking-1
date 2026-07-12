@@ -60,98 +60,85 @@ async function main() {
   const plates = carRows.map((r) => r.plate);
   const runId = randomUUID();
 
-  // 분산 뮤텍스 — 하루 1회 실행 보장
-  const { error: lockErr } = await supabase.from('fp_logs').insert({
-    run_id: runId, plate: '__cron_lock__', status: 'running', message: 'cron lock',
-  });
-  if (lockErr) {
-    console.log('[cron] 중복 실행 방지 — 이미 실행 중:', lockErr.code);
+  // 겹침 실행 방지는 workflow의 concurrency(group: weekly-parking)가 담당.
+  // 하루 여러 차례 폴링하므로 하루 1회 제한 뮤텍스는 두지 않는다 — 등록은
+  // 멱등(이미 처리된 차량은 'skipped')이라 재실행 자체는 안전하다.
+
+  // ── 1단계: 현황 조회
+  console.log(`[cron] 현황 조회 시작 (${plates.length}대)`);
+  const statusMap: Record<string, { status: string; message: string }> = {};
+
+  try {
+    await checkCarStatuses(url, adminId, adminPw, plates, (data) => {
+      statusMap[data.plate] = { status: data.status, message: data.message };
+      console.log(`  ${data.plate}: ${data.status} — ${data.message}`);
+    });
+  } catch (e) {
+    console.error('[cron] 현황 조회 예외:', e);
+    for (const plate of plates) {
+      statusMap[plate] = { status: 'error', message: String(e).slice(0, 120) };
+    }
+  }
+
+  // check_error / no_quota 로그
+  const errorEntries = Object.entries(statusMap)
+    .filter(([, v]) => v.status === 'error' || v.status === 'no_quota')
+    .map(([plate, v]) => ({ run_id: `${runId}-status`, plate, status: v.status, message: v.message }));
+  if (errorEntries.length > 0) {
+    await supabase.from('fp_logs').insert(errorEntries);
+  }
+
+  const toRegister: CarInput[] = carRows
+    .filter((r) => statusMap[r.plate]?.status === 'entered')
+    .map((r) => ({
+      plate: r.plate,
+      label: r.label ?? r.plate,
+      ticketChoice: choiceMap[r.id] ?? '00005',
+    }));
+
+  if (toRegister.length === 0) {
+    console.log('[cron] 입차 차량 없음 — 등록 생략');
     return;
   }
 
-  try {
-    // ── 1단계: 현황 조회
-    console.log(`[cron] 현황 조회 시작 (${plates.length}대)`);
-    const statusMap: Record<string, { status: string; message: string }> = {};
-
-    try {
-      await checkCarStatuses(url, adminId, adminPw, plates, (data) => {
-        statusMap[data.plate] = { status: data.status, message: data.message };
-        console.log(`  ${data.plate}: ${data.status} — ${data.message}`);
-      });
-    } catch (e) {
-      console.error('[cron] 현황 조회 예외:', e);
-      for (const plate of plates) {
-        statusMap[plate] = { status: 'error', message: String(e).slice(0, 120) };
-      }
-    }
-
-    // check_error / no_quota 로그
-    const errorEntries = Object.entries(statusMap)
-      .filter(([, v]) => v.status === 'error' || v.status === 'no_quota')
-      .map(([plate, v]) => ({ run_id: `${runId}-status`, plate, status: v.status, message: v.message }));
-    if (errorEntries.length > 0) {
-      await supabase.from('fp_logs').insert(errorEntries);
-    }
-
-    const toRegister: CarInput[] = carRows
-      .filter((r) => statusMap[r.plate]?.status === 'entered')
-      .map((r) => ({
-        plate: r.plate,
-        label: r.label ?? r.plate,
-        ticketChoice: choiceMap[r.id] ?? '00005',
-      }));
-
-    if (toRegister.length === 0) {
-      console.log('[cron] 입차 차량 없음 — 등록 생략');
-      return;
-    }
-
-    // 예산 점검
-    if (Date.now() - START_MS > BUDGET_MS - 30_000) {
-      console.error('[cron] 예산 초과 — 등록 생략');
-      process.exit(1);
-    }
-
-    // ── 2단계: 무료주차 등록
-    console.log(`[cron] 등록 시작 (${toRegister.length}대) [${elapsed()}]`);
-    const logEntries: { plate: string; status: string; message: string }[] = [];
-
-    try {
-      await registerCarsHttp(url, adminId, adminPw, toRegister, {}, (data) => {
-        if (!['pending', 'running'].includes(data.status)) {
-          logEntries.push({ plate: data.plate, status: data.status, message: data.message });
-          console.log(`  ${data.plate}: ${data.status} — ${data.message}`);
-        }
-      });
-    } catch (e) {
-      console.error('[cron] 등록 예외:', e);
-      for (const car of toRegister) {
-        if (!logEntries.find((l) => l.plate === car.plate)) {
-          logEntries.push({ plate: car.plate, status: 'error', message: String(e).slice(0, 120) });
-        }
-      }
-      process.exitCode = 1;
-    }
-
-    if (logEntries.length > 0) {
-      const { error: insertErr } = await supabase.from('fp_logs').insert(
-        logEntries.map((l) => ({ run_id: runId, plate: l.plate, status: l.status, message: l.message }))
-      );
-      if (insertErr) console.error('[cron] fp_logs 저장 실패:', insertErr.message);
-    }
-
-    const failed = logEntries.filter((l) => l.status === 'error' || l.status === 'failed');
-    const ok = logEntries.filter((l) => l.status === 'success');
-    console.log(`[cron] 완료 [${elapsed()}] — 성공 ${ok.length}건, 실패 ${failed.length}건`);
-    if (failed.length > 0) process.exitCode = 1;
-
-  } finally {
-    await supabase.from('fp_logs')
-      .update({ status: 'done' })
-      .eq('run_id', runId)
-      .eq('plate', '__cron_lock__');
+  // 예산 점검
+  if (Date.now() - START_MS > BUDGET_MS - 30_000) {
+    console.error('[cron] 예산 초과 — 등록 생략');
+    process.exit(1);
   }
+
+  // ── 2단계: 무료주차 등록
+  console.log(`[cron] 등록 시작 (${toRegister.length}대) [${elapsed()}]`);
+  const logEntries: { plate: string; status: string; message: string }[] = [];
+
+  try {
+    await registerCarsHttp(url, adminId, adminPw, toRegister, {}, (data) => {
+      if (!['pending', 'running'].includes(data.status)) {
+        logEntries.push({ plate: data.plate, status: data.status, message: data.message });
+        console.log(`  ${data.plate}: ${data.status} — ${data.message}`);
+      }
+    });
+  } catch (e) {
+    console.error('[cron] 등록 예외:', e);
+    for (const car of toRegister) {
+      if (!logEntries.find((l) => l.plate === car.plate)) {
+        logEntries.push({ plate: car.plate, status: 'error', message: String(e).slice(0, 120) });
+      }
+    }
+    process.exitCode = 1;
+  }
+
+  if (logEntries.length > 0) {
+    const { error: insertErr } = await supabase.from('fp_logs').insert(
+      logEntries.map((l) => ({ run_id: runId, plate: l.plate, status: l.status, message: l.message }))
+    );
+    if (insertErr) console.error('[cron] fp_logs 저장 실패:', insertErr.message);
+  }
+
+  const failed = logEntries.filter((l) => l.status === 'error' || l.status === 'failed');
+  const ok = logEntries.filter((l) => l.status === 'success');
+  console.log(`[cron] 완료 [${elapsed()}] — 성공 ${ok.length}건, 실패 ${failed.length}건`);
+  if (failed.length > 0) process.exitCode = 1;
 }
 
 main().catch((e) => { console.error('[cron] 치명적 오류:', e); process.exit(1); });

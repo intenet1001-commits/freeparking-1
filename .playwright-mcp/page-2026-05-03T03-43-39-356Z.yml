@@ -1,0 +1,30 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - heading "HI PARKING WDS" [level=1] [ref=e4]
+  - main [ref=e5]:
+    - generic "login" [ref=e6]:
+      - list [ref=e7]:
+        - listitem [ref=e8]:
+          - text: "아이디:"
+          - textbox "ID 입력" [ref=e9]
+        - listitem [ref=e10]:
+          - text: "비밀번호:"
+          - textbox "비밀번호 입력" [ref=e11]
+      - link "로그인" [ref=e12] [cursor=pointer]:
+        - /url: javascript:onclickSubmit();
+        - generic [ref=e13]: 로그인
+      - list [ref=e14]:
+        - listitem [ref=e15]:
+          - table [ref=e16]:
+            - rowgroup [ref=e17]:
+              - 'row "ID 저장: PW 저장:" [ref=e18]':
+                - cell "ID 저장:" [ref=e19]
+                - cell "PW 저장:" [ref=e20]
+              - row [ref=e21]:
+                - cell [ref=e22]
+                - cell [ref=e23]
+              - row [ref=e24]:
+                - cell [ref=e25]:
+                  - checkbox [ref=e26]
+                - cell [ref=e27]:
+                  - checkbox [ref=e28]

@@ -1,0 +1,13 @@
+[      55ms] Uncaught TypeError: Cannot read properties of undefined (reading 'extend')
+    at <anonymous> (https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/aes.min.js:0:858)
+    at <anonymous> (https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/aes.min.js:0:2378)
+    at <anonymous> (https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/aes.min.js:0:279)
+    at <anonymous> (https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/aes.min.js:0:293)
+[      66ms] [VERBOSE] [DOM] Multiple forms should be contained in their own form elements; break up complex forms into ones that represent a single action: (More info: https://goo.gl/9p2vKq) %o @ http://ajacecg.ajpark.kr/login_m.cs:0
+[    9963ms] TypeError: Cannot read properties of undefined (reading 'submit')
+    at onclickSubmit (http://ajacecg.ajpark.kr/discount/carSearch.cs?userID=ACEA0204&contextPath=:108:9)
+    at HTMLInputElement.onclick (http://ajacecg.ajpark.kr/discount/carSearch.cs?userID=ACEA0204&contextPath=:375:126)
+    at eval (eval at <anonymous> (eval at evaluate (:302:30)), <anonymous>:10:51)
+    at eval (eval at evaluate (:302:30), <anonymous>:4:50)
+    at UtilityScript.evaluate (<anonymous>:304:16)
+    at UtilityScript.<anonymous> (<anonymous>:1:44)

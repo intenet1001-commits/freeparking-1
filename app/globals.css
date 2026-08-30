@@ -295,6 +295,32 @@ a:focus-visible {
   opacity: 0.52;
 }
 
+.fp-share-button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  border: 1px solid var(--fp-line-bright);
+  border-radius: 12px;
+  color: var(--fp-text);
+  background: oklch(20% 0.035 250 / 0.66);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.fp-share-button:hover {
+  border-color: var(--fp-accent);
+  background: oklch(26% 0.055 235 / 0.76);
+  transform: translateY(-1px);
+}
+
+.fp-share-button:active {
+  transform: translateY(0);
+}
+
 .fp-trust-line,
 .fp-boot-indicator,
 .fp-safety-note {

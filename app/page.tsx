@@ -61,6 +61,7 @@ const TICKET_OPTIONS: { dCode: string; label: string }[] = [
   { dCode: "00002", label: "1시간" },
   { dCode: "00001", label: "30분" },
 ];
+const PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://freeparking-1.vercel.app/";
 // 입차시각(ISO) → "N시간 M분 경과" / "M분 경과". now(epoch)는 부모 타이머가 주입.
 // epoch 차이만 쓰므로 표시 단말 타임존과 무관.
 function formatElapsed(entryAtISO?: string, now?: number): string | null {
@@ -105,6 +106,7 @@ export default function Home() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [appShared, setAppShared] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPlate, setEditPlate] = useState("");
   const [editLabel, setEditLabel] = useState("");
@@ -618,10 +620,12 @@ export default function Home() {
     const shared = await shareText(
       '무료주차 자동등록',
       '입차 차량의 현황을 확인하고 무료주차를 빠르게 등록할 수 있어요.',
-      window.location.href
+      PUBLIC_APP_URL
     );
-    if (shared && !navigator.share) {
-      setToast({ msg: '앱 링크를 복사했습니다.', ok: true });
+    if (shared) {
+      setAppShared(true);
+      setTimeout(() => setAppShared(false), 2000);
+      if (!navigator.share) setToast({ msg: '고정 앱 주소를 복사했습니다.', ok: true });
     }
   }
 
@@ -789,6 +793,11 @@ export default function Home() {
 
   if (!authed) return (
     <main className="fp-intro flex min-h-[100dvh] items-center justify-center p-4 sm:p-8">
+      {toast && (
+        <div role="status" aria-live="polite" className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl px-5 py-3 text-sm font-medium text-white shadow-lg ${toast.ok ? 'bg-emerald-600' : 'bg-rose-500'}`}>
+          {toast.msg}
+        </div>
+      )}
       <div className="fp-orbit fp-orbit-one" aria-hidden="true" />
       <div className="fp-orbit fp-orbit-two" aria-hidden="true" />
       <section className="fp-access-panel relative z-10 w-full max-w-md" aria-labelledby="intro-title">
@@ -843,6 +852,11 @@ export default function Home() {
             {authSubmitting ? '보안 확인 중...' : '시스템 시작'}
           </button>
         </form>
+
+        <button type="button" onClick={shareApp} className="fp-share-button mt-3 w-full">
+          {appShared ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+          {appShared ? '주소 공유 완료' : '로그인 주소 공유하기'}
+        </button>
 
         <div className="fp-trust-line">
           <LockKeyhole className="h-3.5 w-3.5" />

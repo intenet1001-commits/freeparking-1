@@ -3,12 +3,16 @@
  */
 import { chromium } from 'playwright';
 
-const URL = 'http://ajacecg.ajpark.kr/login_m.cs';
-const ID = 'ACEA0204';
-const PW = '1111';
-const TEST_LAST4 = '5137'; // 36루5137
+const URL = process.env.NICEPARK_URL ?? '';
+const ID = process.env.NICEPARK_ID ?? '';
+const PW = process.env.NICEPARK_PW ?? '';
+const TEST_LAST4 = process.env.NICEPARK_TEST_LAST4 ?? '';
+const APPLY = process.argv.includes('--confirm-apply');
 
 async function main() {
+  if (!URL || !ID || !PW || !TEST_LAST4) {
+    throw new Error('NICEPARK_URL, NICEPARK_ID, NICEPARK_PW, NICEPARK_TEST_LAST4 환경변수가 필요합니다.');
+  }
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
@@ -18,11 +22,15 @@ async function main() {
     const url = req.url();
     if (!url.includes('.css') && !url.includes('.js') && !url.includes('.jpg') && !url.includes('.gif') && !url.includes('.png')) {
       console.log(`\n[${method}] ${url}`);
-      if (method === 'POST') console.log('  Body:', req.postData()?.slice(0, 500));
+      if (method === 'POST') {
+        const safeBody = (req.postData() ?? '')
+          .replace(/(j_password(?:_form)?=)[^&]*/gi, '$1[REDACTED]')
+          .replace(/(password=)[^&]*/gi, '$1[REDACTED]');
+        console.log('  Body:', safeBody.slice(0, 500));
+      }
     }
   });
   page.on('response', async resp => {
-    const method = resp.request().method();
     const url = resp.url();
     if (!url.includes('.css') && !url.includes('.js') && !url.includes('.jpg') && !url.includes('.gif') && !url.includes('.png')) {
       console.log(`  → ${resp.status()} ${url}`);
@@ -53,7 +61,8 @@ async function main() {
   // MultipleDiscountApply JS 함수 소스 추출
   console.log('\n=== MultipleDiscountApply 함수 소스 ===');
   const fnSource = await page.evaluate(() => {
-    const src = (window as any).MultipleDiscountApply?.toString() ?? 'NOT FOUND';
+    const typedWindow = window as Window & { MultipleDiscountApply?: () => unknown };
+    const src = typedWindow.MultipleDiscountApply?.toString() ?? 'NOT FOUND';
     return src;
   });
   console.log(fnSource.slice(0, 1000));
@@ -71,10 +80,12 @@ async function main() {
     }
   }
 
-  // 버튼 클릭 + 네트워크 캡처
-  console.log('\n=== 버튼 클릭 (네트워크 캡처) ===');
+  // 기본은 dry-run. 실제 주차권 차감은 --confirm-apply를 명시한 경우에만 수행.
+  console.log(`\n=== 등록 단계 (${APPLY ? 'CONFIRMED APPLY' : 'DRY RUN'}) ===`);
   const dayBtn = await page.$("input[type=button][id*='BTN_종일']") ?? await page.$("input[type=button][value*='종일']");
-  if (dayBtn && !(await dayBtn.isDisabled())) {
+  if (!APPLY) {
+    console.log('DRY RUN: 버튼을 클릭하지 않았습니다. 실제 적용은 --confirm-apply가 필요합니다.');
+  } else if (dayBtn && !(await dayBtn.isDisabled())) {
     await Promise.all([
       page.waitForNavigation({ timeout: 10000, waitUntil: 'domcontentloaded' }).catch(() => {}),
       dayBtn.click(),

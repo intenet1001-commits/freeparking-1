@@ -34,10 +34,12 @@ export function buildBaseUrl(url: string): string {
 }
 
 export function resolveUrl(base: string, href: string): string {
-  if (!href) return base;
-  if (href.startsWith('http')) return href;
-  const b = buildBaseUrl(base);
-  return `${b}${href.startsWith('/') ? '' : '/'}${href}`;
+  const baseUrl = new URL(base);
+  const resolved = new URL(href || baseUrl.href, baseUrl);
+  if (resolved.origin !== baseUrl.origin) {
+    throw new Error('외부 호스트로의 리다이렉트가 차단되었습니다.');
+  }
+  return resolved.href;
 }
 
 export function parseHiddenInputs(html: string): Record<string, string> {
@@ -58,6 +60,39 @@ export function isLoginPage(html: string): boolean {
 
 export const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
+export async function fetchGetSameOrigin(
+  url: string,
+  cookieJar = '',
+  referer?: string
+): Promise<{ response: Response; cookieJar: string }> {
+  let currentUrl = new URL(url).href;
+  let currentReferer = referer;
+
+  for (let hop = 0; hop < 6; hop++) {
+    const response = await fetch(currentUrl, {
+      redirect: 'manual',
+      headers: {
+        ...(cookieJar ? { Cookie: cookieJar } : {}),
+        ...(currentReferer ? { Referer: currentReferer } : {}),
+        'User-Agent': UA,
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT),
+    });
+    cookieJar = mergeCookies(cookieJar, extractSetCookies(response.headers));
+
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      return { response, cookieJar };
+    }
+    const location = response.headers.get('location');
+    if (!location) return { response, cookieJar };
+    const nextUrl = resolveUrl(currentUrl, location);
+    currentReferer = currentUrl;
+    currentUrl = nextUrl;
+  }
+
+  throw new Error('리다이렉트 횟수 한도를 초과했습니다.');
+}
+
 export type LoginResult =
   | { ok: true; cookieJar: string; carSearchUrl: string }
   | { ok: false; message: string };
@@ -71,8 +106,9 @@ export async function ajparkLogin(
   const baseUrl = buildBaseUrl(url);
 
   // 1. GET login page → session cookie + form action
-  const p1 = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
-  cookieJar = mergeCookies(cookieJar, extractSetCookies(p1.headers));
+  const loginPage = await fetchGetSameOrigin(url, cookieJar);
+  const p1 = loginPage.response;
+  cookieJar = loginPage.cookieJar;
   const loginHtml = await p1.text();
 
   // Parse form action (e.g. "login;jsessionid=XXX")
@@ -120,17 +156,18 @@ export async function ajparkLogin(
     if (status === 301 || status === 302 || status === 303 || status === 307 || status === 308) {
       const rawLocation = currentResp.headers.get('location') ?? '';
       if (!rawLocation) break;
-      const nextUrl = new URL(resolveUrl(currentUrl, rawLocation)).href;
+      const nextUrl = resolveUrl(currentUrl, rawLocation);
 
       if (nextUrl.includes('carSearch')) {
         carSearchUrl = nextUrl;
         break;
       }
 
+      const previousUrl = currentUrl;
       currentUrl = nextUrl;
       currentResp = await fetch(nextUrl, {
         redirect: 'manual',
-        headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: currentUrl },
+        headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: previousUrl },
         signal: AbortSignal.timeout(FETCH_TIMEOUT),
       });
       cookieJar = mergeCookies(cookieJar, extractSetCookies(currentResp.headers));
@@ -165,12 +202,9 @@ export async function searchCar(
   last4: string
 ): Promise<SearchResult> {
   // GET carSearch page for form structure
-  const csPage = await fetch(carSearchUrl, {
-    headers: { Cookie: cookieJar, 'User-Agent': UA },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(FETCH_TIMEOUT),
-  });
-  cookieJar = mergeCookies(cookieJar, extractSetCookies(csPage.headers));
+  const carSearchPage = await fetchGetSameOrigin(carSearchUrl, cookieJar);
+  const csPage = carSearchPage.response;
+  cookieJar = carSearchPage.cookieJar;
   const csHtml = await csPage.text();
 
   // 세션 만료 시 carSearch GET이 로그인폼으로 떨어짐 → 호출측에서 재로그인하도록 신호
@@ -208,12 +242,9 @@ export async function searchCar(
     const location = postResp.headers.get('location') ?? '';
     if (location) {
       finalUrl = new URL(resolveUrl(searchAction, location)).href;
-      const getResp = await fetch(finalUrl, {
-        redirect: 'follow',
-        headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: searchAction },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT),
-      });
-      cookieJar = mergeCookies(cookieJar, extractSetCookies(getResp.headers));
+      const followed = await fetchGetSameOrigin(finalUrl, cookieJar, searchAction);
+      const getResp = followed.response;
+      cookieJar = followed.cookieJar;
       html = await getResp.text();
       finalUrl = getResp.url;
     }

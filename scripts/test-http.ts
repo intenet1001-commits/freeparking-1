@@ -3,18 +3,22 @@
  */
 import { ajparkLogin, searchCar } from '../lib/ajpark-http.js';
 
-const URL = 'http://ajacecg.ajpark.kr/login_m.cs';
-const ID = 'ACEA0204';
-const PW = '1111';
+const URL = process.env.NICEPARK_URL ?? '';
+const ID = process.env.NICEPARK_ID ?? '';
+const PW = process.env.NICEPARK_PW ?? '';
+const TEST_LAST4 = process.env.NICEPARK_TEST_LAST4 ?? '';
 
 async function main() {
+  if (!URL || !ID || !PW || !TEST_LAST4) {
+    throw new Error('NICEPARK_URL, NICEPARK_ID, NICEPARK_PW, NICEPARK_TEST_LAST4 환경변수가 필요합니다.');
+  }
   console.log('=== 로그인 ===');
   const login = await ajparkLogin(URL, ID, PW);
   if (!login.ok) { console.error('로그인 실패:', login.message); return; }
   console.log('carSearchUrl:', login.carSearchUrl);
 
-  console.log('\n=== 차량 조회 (9962) ===');
-  const result = await searchCar(login.carSearchUrl, login.cookieJar, '9962');
+  console.log(`\n=== 차량 조회 (${TEST_LAST4}) ===`);
+  const result = await searchCar(login.carSearchUrl, login.cookieJar, TEST_LAST4);
   console.log('finalUrl:', result.finalUrl);
 
   const pKeyMatch = result.finalUrl.match(/[?&]pKey=([^&]+)/);

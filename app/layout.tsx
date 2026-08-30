@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#030712",
+  themeColor: "#0b111e",
 };
 
 export default function RootLayout({
@@ -22,7 +22,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
-      <body className="bg-gray-950 text-gray-100 min-h-screen antialiased">
+      <body className="antialiased">
         {children}
       </body>
     </html>

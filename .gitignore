@@ -7,3 +7,6 @@ data/
 .bkit/
 .omc/
 .vercel
+output/
+.cs-artifacts/
+*.tsbuildinfo

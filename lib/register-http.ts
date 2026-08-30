@@ -1,5 +1,5 @@
 import { CarInput, EmitFn, getLast4, normalizePlate, platesMatch, extractCandidates } from './register';
-import { ajparkLogin, searchCar, mergeCookies, extractSetCookies, buildBaseUrl, UA } from './ajpark-http';
+import { ajparkLogin, searchCar, buildBaseUrl, fetchGetSameOrigin } from './ajpark-http';
 import {
   parseEntryTime,
   parseEntryDateTime,
@@ -9,7 +9,7 @@ import {
   type DiscountButton,
 } from './check-status';
 
-const FETCH_TIMEOUT = 15000;
+const OPERATION_BUDGET = 45_000;
 const ALLDAY_DCODE = '00005'; // 종일권 dCode (실측). 권종 미지정 시 기본값.
 
 // 다중 차량 목록 페이지(carSearch POST 200 응답)에서 특정 차량의 pKey 추출
@@ -64,6 +64,7 @@ export async function registerCarsHttp(
   emit: EmitFn
 ): Promise<{ success: boolean; errors: string[] }> {
   const errors: string[] = [];
+  const deadline = Date.now() + OPERATION_BUDGET;
 
   const login = await ajparkLogin(url, adminId, adminPw);
   if (!login.ok) {
@@ -90,7 +91,15 @@ export async function registerCarsHttp(
     return r;
   }
 
-  for (const car of cars) {
+  for (const [index, car] of cars.entries()) {
+    if (Date.now() >= deadline) {
+      for (const pending of cars.slice(index)) {
+        const message = '서버 처리 시간 한도 도달 — 현황 조회 후 다시 실행해주세요.';
+        errors.push(`${pending.plate}: ${message}`);
+        emit({ plate: pending.plate, status: 'failed', message });
+      }
+      break;
+    }
     const plate = car.plate.trim();
     const last4 = getLast4(plate);
     const normPlate = normalizePlate(plate);
@@ -136,12 +145,9 @@ export async function registerCarsHttp(
 
         // 선택된 차량의 discountApply 페이지로 이동
         const discountUrl = `${buildBaseUrl(finalUrl)}/discount/discountApply.cs?pKey=${encodeURIComponent(listPKey)}`;
-        const discResp = await fetch(discountUrl, {
-          redirect: 'follow',
-          headers: { Cookie: cookieJar, 'User-Agent': UA, Referer: finalUrl },
-          signal: AbortSignal.timeout(FETCH_TIMEOUT),
-        });
-        cookieJar = mergeCookies(cookieJar, extractSetCookies(discResp.headers));
+        const followed = await fetchGetSameOrigin(discountUrl, cookieJar, finalUrl);
+        const discResp = followed.response;
+        cookieJar = followed.cookieJar;
         html = await discResp.text();
         finalUrl = discResp.url;
       }
@@ -213,13 +219,9 @@ export async function registerCarsHttp(
       const base = buildBaseUrl(finalUrl);
       const applyUrl = `${base}/discount/discountApplyProcRepeat.cs?pKey=${encodeURIComponent(pKey)}&dCode=${encodeURIComponent(target.dCode)}&dKind=${encodeURIComponent(dKind)}&fDays=&remark=&repeat=1`;
 
-      const clickResp = await fetch(applyUrl, {
-        method: 'GET',
-        redirect: 'follow',
-        headers: { Cookie: cookieJar, Referer: finalUrl, 'User-Agent': UA },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT),
-      });
-      cookieJar = mergeCookies(cookieJar, extractSetCookies(clickResp.headers));
+      const followed = await fetchGetSameOrigin(applyUrl, cookieJar, finalUrl);
+      const clickResp = followed.response;
+      cookieJar = followed.cookieJar;
       const afterText = (await clickResp.text()).replace(/<[^>]+>/g, ' ');
 
       // 성공판정: 등록 성공 시 discountApplyProcRepeat → discountApply.cs?month=...(달력) 리다이렉트 (역공학 확인).

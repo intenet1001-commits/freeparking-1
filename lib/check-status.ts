@@ -1,6 +1,8 @@
 import { getLast4, normalizePlate, platesMatch, extractCandidates } from './register';
 import { ajparkLogin, searchCar } from './ajpark-http';
 
+const OPERATION_BUDGET = 45_000;
+
 export type TicketKind = 'allDay' | 'hourly';
 
 export type CarStatusResult = {
@@ -142,6 +144,7 @@ export async function checkCarStatuses(
   plates: string[],
   emit: EmitStatusFn
 ): Promise<void> {
+  const deadline = Date.now() + OPERATION_BUDGET;
   const login = await ajparkLogin(url, adminId, adminPw);
   if (!login.ok) {
     for (const plate of plates) emit({ plate, status: 'error', message: login.message });
@@ -168,7 +171,17 @@ export async function checkCarStatuses(
     return r;
   }
 
-  for (const plate of plates) {
+  for (const [index, plate] of plates.entries()) {
+    if (Date.now() >= deadline) {
+      for (const pendingPlate of plates.slice(index)) {
+        emit({
+          plate: pendingPlate,
+          status: 'error',
+          message: '서버 처리 시간 한도 도달 — 잠시 후 다시 조회해주세요.',
+        });
+      }
+      break;
+    }
     const last4 = getLast4(plate);
     const normPlate = normalizePlate(plate);
     try {

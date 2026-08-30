@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """AJ파크 HI PARKING - 차량 검색 → 종일권 등록 흐름 분석"""
 from playwright.sync_api import sync_playwright
+import os
 import time
 
-URL = "http://ajacecg.ajpark.kr/login_m.cs"
-ID = "ACEA0204"
-PW = "1111"
-TEST_PLATE_LAST4 = "9913"
+URL = os.environ.get("NICEPARK_URL", "")
+ID = os.environ.get("NICEPARK_ID", "")
+PW = os.environ.get("NICEPARK_PW", "")
+TEST_PLATE_LAST4 = os.environ.get("NICEPARK_TEST_LAST4", "")
+
+if not all((URL, ID, PW, TEST_PLATE_LAST4)):
+    raise SystemExit("NICEPARK_URL, NICEPARK_ID, NICEPARK_PW, NICEPARK_TEST_LAST4 환경변수가 필요합니다.")
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=False, slow_mo=700)

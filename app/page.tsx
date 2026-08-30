@@ -19,6 +19,10 @@ import {
   Copy,
   Check,
   Search,
+  Share2,
+  LockKeyhole,
+  ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabase";
@@ -57,16 +61,6 @@ const TICKET_OPTIONS: { dCode: string; label: string }[] = [
   { dCode: "00002", label: "1시간" },
   { dCode: "00001", label: "30분" },
 ];
-const SPECIAL_ROWS = new Set(["__settings__", "__ticketchoices__"]);
-
-// 입차 경과시간(분) → 적정 권종 dCode 추천
-function recommendTicketByElapsed(elapsedMins: number): string {
-  if (elapsedMins <= 30) return "00001";  // 30분
-  if (elapsedMins <= 60) return "00002";  // 1시간
-  if (elapsedMins <= 90) return "00004";  // 1시간30분
-  return "00005";                          // 종일권 (> 90분)
-}
-
 // 입차시각(ISO) → "N시간 M분 경과" / "M분 경과". now(epoch)는 부모 타이머가 주입.
 // epoch 차이만 쓰므로 표시 단말 타임존과 무관.
 function formatElapsed(entryAtISO?: string, now?: number): string | null {
@@ -96,10 +90,10 @@ type LogEntry = {
   candidates?: Candidate[];
 };
 
-const APP_PW = "werwer1.";
-
 export default function Home() {
   const [authed, setAuthed] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState(false);
   const [cars, setCars] = useState<CarEntry[]>([]);
@@ -125,8 +119,21 @@ export default function Home() {
   const initialStatusLoaded = useRef(false);
 
   useEffect(() => {
-    if (localStorage.getItem("fp_authed") === "1") setAuthed(true);
+    fetch("/api/auth", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data) => setAuthed(data.authenticated === true))
+      .catch(() => setAuthed(false))
+      .finally(() => setAuthReady(true));
   }, []);
+
+  useEffect(() => {
+    if (!pendingDeleteId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPendingDeleteId(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [pendingDeleteId]);
 
   // 경과시간 타이머: 차량 수와 무관하게 단일 setInterval. 화면 복귀 시 즉시 갱신.
   useEffect(() => {
@@ -139,37 +146,45 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // 단일 쿼리로 차량 + 설정(__settings__) + 권종맵(__ticketchoices__) 모두 로드
-    supabase
+    if (!authed) return;
+    // 자격증명은 브라우저 DB 응답에 싣지 않는다. 차량과 권종만 최소 컬럼으로 분리 조회.
+    const local = localStorage.getItem('freeparking_settings');
+    if (local) {
+      try {
+        const saved = JSON.parse(local);
+        setSettings({
+          url: typeof saved?.url === 'string' ? saved.url : '',
+          id: typeof saved?.id === 'string' ? saved.id : '',
+          pw: '',
+        });
+      } catch {}
+    }
+    Promise.all([
+      supabase
       .from("fp_cars")
-      .select("*")
-      .order("created_at")
-      .then(({ data }) => {
-        if (!data) return;
-        // 권종 선택 맵: __ticketchoices__ 행의 label JSON ({ carId: dCode })
+      .select("id, plate, label, created_at")
+      .neq("plate", "__settings__")
+      .neq("plate", "__ticketchoices__")
+      .order("created_at"),
+      supabase
+        .from("fp_cars")
+        .select("label")
+        .eq("plate", "__ticketchoices__")
+        .maybeSingle(),
+    ]).then(([carsResult, choicesResult]) => {
+        const data = carsResult.data;
+        if (!data) {
+          if (carsResult.error) setToast({ msg: '차량 목록을 불러오지 못했습니다.', ok: false });
+          return;
+        }
         let choiceMap: Record<string, string> = {};
-        const tcRow = data.find((r) => r.plate === "__ticketchoices__");
+        const tcRow = choicesResult.data;
         if (tcRow?.label) { try { choiceMap = JSON.parse(tcRow.label); } catch {} }
         setCars(
-          data
-            .filter((r) => !SPECIAL_ROWS.has(r.plate))
-            .map((r) => ({ ...r, selected: true, ticketChoice: undefined }))
+          data.map((r) => ({ ...r, selected: false, ticketChoice: choiceMap[r.id] }))
         );
-        // 설정: __settings__ 행의 label JSON. 없으면 localStorage 폴백
-        const sRow = data.find((r) => r.plate === "__settings__");
-        if (sRow?.label) {
-          try {
-            const s = JSON.parse(sRow.label);
-            setSettings({ url: s.url ?? '', id: s.id ?? '', pw: s.pw ?? '' });
-            return;
-          } catch {}
-        }
-        try {
-          const local = localStorage.getItem('freeparking_settings');
-          if (local) setSettings(JSON.parse(local));
-        } catch {}
       });
-  }, []);
+  }, [authed]);
 
   useEffect(() => {
     if (!toast) return;
@@ -212,7 +227,7 @@ export default function Home() {
       setToast({ msg: `추가 실패: ${error.message}`, ok: false });
       return;
     }
-    if (data) setCars((prev) => [...prev, { ...data, selected: true }]);
+    if (data) setCars((prev) => [...prev, { ...data, selected: false }]);
     setNewPlate("");
     setNewLabel("");
   }
@@ -251,22 +266,27 @@ export default function Home() {
     const newCars = entries.filter((e) => !cars.find((c) => c.plate === e.plate));
     const dupes = entries.filter((e) => cars.find((c) => c.plate === e.plate)).map((e) => e.plate);
     if (newCars.length > 0) {
-      await supabase
+      const { error } = await supabase
         .from("fp_cars")
         .upsert(
           newCars.map((c) => ({ plate: c.plate, label: c.label })),
           { onConflict: "plate", ignoreDuplicates: true }
         );
-      // Re-fetch full list (권종맵 병합 유지)
-      const { data } = await supabase.from("fp_cars").select("*").order("created_at");
+      if (error) {
+        setToast({ msg: `일괄 추가 실패: ${error.message}`, ok: false });
+        return;
+      }
+      // 자격증명 특수행이 브라우저 응답에 포함되지 않도록 최소 컬럼만 재조회.
+      const { data } = await supabase
+        .from("fp_cars")
+        .select("id, plate, label, created_at")
+        .neq("plate", "__settings__")
+        .neq("plate", "__ticketchoices__")
+        .order("created_at");
       if (data) {
-        let choiceMap: Record<string, string> = {};
-        const tcRow = data.find((r) => r.plate === "__ticketchoices__");
-        if (tcRow?.label) { try { choiceMap = JSON.parse(tcRow.label); } catch {} }
+        const choiceMap = Object.fromEntries(cars.map((car) => [car.id, car.ticketChoice]));
         setCars(
-          data
-            .filter((r) => !SPECIAL_ROWS.has(r.plate))
-            .map((r) => ({ ...r, selected: true, ticketChoice: undefined }))
+          data.map((r) => ({ ...r, selected: false, ticketChoice: choiceMap[r.id] }))
         );
       }
     }
@@ -276,7 +296,11 @@ export default function Home() {
   }
 
   async function removeCar(id: string) {
-    await supabase.from("fp_cars").delete().eq("id", id);
+    const { error } = await supabase.from("fp_cars").delete().eq("id", id);
+    if (error) {
+      setToast({ msg: `삭제 실패: ${error.message}`, ok: false });
+      return;
+    }
     setCars((prev) => {
       const next = prev.filter((c) => c.id !== id);
       return next;
@@ -287,13 +311,32 @@ export default function Home() {
     const plate = editPlate.trim().toUpperCase();
     const label = editLabel.trim();
     if (!plate) return;
-    await supabase.from("fp_cars").update({ plate, label }).eq("id", id);
+    const { error } = await supabase.from("fp_cars").update({ plate, label }).eq("id", id);
+    if (error) {
+      setToast({ msg: `수정 실패: ${error.message}`, ok: false });
+      return;
+    }
     setCars((prev) => prev.map((c) => c.id === id ? { ...c, plate, label } : c));
     setEditingId(null);
   }
 
-  function saveTicketChoice(id: string, dCode: string) {
-    setCars((prev) => prev.map((c) => (c.id === id ? { ...c, ticketChoice: dCode } : c)));
+  async function saveTicketChoice(id: string, dCode: string) {
+    const previousChoice = cars.find((car) => car.id === id)?.ticketChoice;
+    const nextCars = cars.map((car) => car.id === id ? { ...car, ticketChoice: dCode } : car);
+    setCars(nextCars);
+    const choiceMap = Object.fromEntries(
+      nextCars.map((car) => [car.id, car.ticketChoice ?? "00005"])
+    );
+    const { error } = await supabase
+      .from("fp_cars")
+      .upsert(
+        { plate: "__ticketchoices__", label: JSON.stringify(choiceMap) },
+        { onConflict: "plate" }
+      );
+    if (error) {
+      setCars((prev) => prev.map((car) => car.id === id ? { ...car, ticketChoice: previousChoice } : car));
+      setToast({ msg: `권종 저장 실패: ${error.message}`, ok: false });
+    }
   }
 
   function toggleCar(id: string) {
@@ -307,21 +350,18 @@ export default function Home() {
   }
 
   async function saveSettings() {
-    localStorage.setItem('freeparking_settings', JSON.stringify({ url: settings.url, id: settings.id, pw: settings.pw }));
-    // fp_cars의 plate='__settings__' 행에 설정 저장 (fp_settings 테이블 불필요)
-    const { error } = await supabase
-      .from("fp_cars")
-      .upsert({ plate: "__settings__", label: JSON.stringify({ url: settings.url, id: settings.id, pw: settings.pw }) }, { onConflict: "plate" });
-    if (error) {
-      setToast({ msg: `저장 실패: ${error.message}`, ok: false });
+    if (!settings.url.trim() || !settings.id.trim() || !settings.pw) {
+      setToast({ msg: 'URL·아이디·비밀번호를 모두 입력해주세요.', ok: false });
       return;
     }
-    setToast({ msg: '설정 저장 완료 ✓', ok: true });
+    // 관리자 비밀번호는 브라우저 저장소에 남기지 않고 현재 탭의 메모리에서만 사용한다.
+    localStorage.setItem('freeparking_settings', JSON.stringify({ url: settings.url, id: settings.id }));
+    setToast({ msg: '설정 저장 완료 · 비밀번호는 브라우저에 저장하지 않습니다.', ok: true });
     setShowSettings(false);
   }
 
   function applyStatusAndAutoSelect(newMap: Record<string, CarStatus>, mode: 'auto' | 'clear' = 'auto') {
-    setStatusMap(newMap);
+    setStatusMap((previous) => mode === 'clear' ? newMap : { ...previous, ...newMap });
     // 'auto'(라이브 현황조회): 입차중(등록전) 차량 자동 선택 + 경과시간 기반 권종 자동 추천.
     // 'clear'(fp_logs 기록 복원): 선택 모두 해제 + 권종 추천 안 함.
     setCars((prev) => prev.map((c) => {
@@ -336,7 +376,9 @@ export default function Home() {
       return {
         ...c,
         ticketChoice,
-        selected: mode === 'auto' && st?.status === 'entered',
+        selected: mode === 'auto'
+          ? st ? st.status === 'entered' : c.selected
+          : false,
       };
     }));
   }
@@ -344,8 +386,12 @@ export default function Home() {
   async function runStatusCheck() {
     const plates = cars.map((c) => c.plate);
     if (plates.length === 0) return;
+    if (!settings.url || !settings.id || !settings.pw) {
+      setShowSettings(true);
+      setToast({ msg: '먼저 주차 시스템 설정을 완료해주세요.', ok: false });
+      return;
+    }
     setCheckingStatus(true);
-    setStatusMap({});
 
     // fp_logs에서 당일 등록완료 여부 조회 (KST 자정 기준 — 전날 기록으로 오판 방지)
     const kstTodayStart = `${new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)}T00:00:00+09:00`;
@@ -369,6 +415,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plates, settings }),
       });
+      if (resp.status === 401) {
+        setAuthed(false);
+        throw new Error('로그인이 만료되었습니다. 다시 로그인해주세요.');
+      }
       await readSSE(resp, (data) => {
         if (data.done || !data.plate) return;
         const plate = data.plate as string;
@@ -441,14 +491,23 @@ export default function Home() {
     resp: Response,
     onData: (data: Record<string, unknown>) => void
   ) {
+    if (!resp.ok) {
+      const payload = await resp.json().catch(() => null) as { error?: string } | null;
+      throw new Error(payload?.error || `요청 실패 (${resp.status})`);
+    }
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
     if (!reader) throw new Error("스트림 없음");
     // 청크 경계로 'data:' 라인이 쪼개져도 유실되지 않도록 버퍼 누적 (모바일/프록시 신뢰성)
     let buffer = "";
+    let streamError = "";
     const flush = (line: string) => {
       if (!line.startsWith("data: ")) return; // ': ping' 주석 등은 무시
-      try { onData(JSON.parse(line.slice(6))); } catch {}
+      try {
+        const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
+        if (typeof data.error === "string") streamError = data.error;
+        onData(data);
+      } catch {}
     };
     while (true) {
       const { done, value } = await reader.read();
@@ -460,6 +519,7 @@ export default function Home() {
     }
     buffer += decoder.decode();
     for (const line of buffer.split("\n")) flush(line);
+    if (streamError) throw new Error(streamError);
   }
 
   function applyLogUpdate(data: Record<string, unknown>) {
@@ -510,7 +570,7 @@ export default function Home() {
     }
   }
 
-  function copyLogs() {
+  function buildLogShareText() {
     const statusLabel: Record<LogEntry["status"], string> = {
       pending: "대기",
       running: "진행중",
@@ -529,9 +589,40 @@ export default function Home() {
       "",
       `성공 ${logs.filter((l) => l.status === "success").length} / 실패 ${logs.filter((l) => l.status === "failed").length} / 중복 ${logs.filter((l) => l.status === "duplicate").length} / 입차안됨 ${logs.filter((l) => l.status === "not_entered").length}`,
     ];
-    navigator.clipboard.writeText(lines.join("\n"));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    return lines.join("\n");
+  }
+
+  async function shareText(title: string, text: string, url?: string) {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text, ...(url ? { url } : {}) });
+      } else {
+        await navigator.clipboard.writeText([text, url].filter(Boolean).join("\n"));
+      }
+      return true;
+    } catch (error) {
+      if ((error as Error)?.name === "AbortError") return false;
+      setToast({ msg: '공유하지 못했습니다. 브라우저 권한을 확인해주세요.', ok: false });
+      return false;
+    }
+  }
+
+  async function shareLogs() {
+    if (await shareText('무료주차 자동등록 결과', buildLogShareText())) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  async function shareApp() {
+    const shared = await shareText(
+      '무료주차 자동등록',
+      '입차 차량의 현황을 확인하고 무료주차를 빠르게 등록할 수 있어요.',
+      window.location.href
+    );
+    if (shared && !navigator.share) {
+      setToast({ msg: '앱 링크를 복사했습니다.', ok: true });
+    }
   }
 
   async function runRegistration() {
@@ -562,9 +653,19 @@ export default function Home() {
           selectedJson: {},
         }),
       });
+      if (resp.status === 401) {
+        setAuthed(false);
+        throw new Error('로그인이 만료되었습니다. 다시 로그인해주세요.');
+      }
       await readSSE(resp, applyLogUpdate);
     } catch (e) {
-      console.error(e);
+      const message = e instanceof Error ? e.message : '등록 요청에 실패했습니다.';
+      setLogs((prev) => prev.map((log) =>
+        ["pending", "running"].includes(log.status)
+          ? { ...log, status: "failed", message }
+          : log
+      ));
+      setToast({ msg: message, ok: false });
     } finally {
       setRunning(false);
       // Save logs to Supabase → 완료 후 배지 갱신
@@ -617,23 +718,50 @@ export default function Home() {
           selectedJson: { [plate]: selectedIndex },
         }),
       });
+      if (resp.status === 401) {
+        setAuthed(false);
+        throw new Error('로그인이 만료되었습니다. 다시 로그인해주세요.');
+      }
       await readSSE(resp, applyLogUpdate);
     } catch (e) {
-      console.error(e);
+      const message = e instanceof Error ? e.message : '선택 등록에 실패했습니다.';
+      setLogs((prev) => prev.map((log) => log.plate === plate
+        ? { ...log, status: "failed", message }
+        : log));
+      setToast({ msg: message, ok: false });
     } finally {
       // 선택 등록 완료 후 배지 갱신
       setTimeout(() => loadLastStatus(), 300);
     }
   }
 
-  function submitPw() {
-    if (pwInput === APP_PW) {
-      localStorage.setItem("fp_authed", "1");
+  async function submitPw() {
+    if (!pwInput || authSubmitting) return;
+    setAuthSubmitting(true);
+    setPwError(false);
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwInput }),
+      });
+      if (!response.ok) {
+        setPwError(true);
+        return;
+      }
+      setPwInput('');
       setAuthed(true);
-      setPwError(false);
-    } else {
+    } catch {
       setPwError(true);
+    } finally {
+      setAuthSubmitting(false);
     }
+  }
+
+  async function lockApp() {
+    await fetch('/api/auth', { method: 'DELETE' }).catch(() => undefined);
+    setAuthed(false);
+    setPwInput('');
   }
 
   // 현황 조회 후 주차권 잔여 매수 요약 (시스템 공통값). fp_logs 복원 데이터(isLast)는 제외.
@@ -647,50 +775,94 @@ export default function Home() {
   })();
 
   const selectedCount = cars.filter((c) => c.selected).length;
-  const allSelected = cars.length > 0 && cars.every((c) => c.selected);
+  const settingsReady = Boolean(settings.url && settings.id && settings.pw);
+  const registrationDisabled = running || checkingStatus || selectedCount === 0 || !settingsReady;
 
-  if (!authed) return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 w-full max-w-sm space-y-4">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="bg-blue-600 rounded-xl p-2"><Car className="w-5 h-5 text-white" /></div>
-          <h1 className="text-lg font-bold text-white">무료주차 자동등록</h1>
-        </div>
-        <input
-          type="password"
-          placeholder="비밀번호"
-          value={pwInput}
-          onChange={(e) => { setPwInput(e.target.value); setPwError(false); }}
-          onKeyDown={(e) => e.key === "Enter" && submitPw()}
-          autoFocus
-          suppressHydrationWarning
-          className={clsx(
-            "w-full bg-gray-800 border rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none",
-            pwError ? "border-red-500 focus:border-red-400" : "border-gray-700 focus:border-blue-500"
-          )}
-        />
-        {pwError && <p className="text-xs text-red-400">비밀번호가 틀렸습니다.</p>}
-        <button
-          onClick={submitPw}
-          className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
-        >
-          입장
-        </button>
+  if (!authReady) return (
+    <div className="fp-intro flex items-center justify-center" aria-label="앱 보안 상태 확인 중">
+      <div className="fp-boot-indicator">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        보안 채널 확인 중
       </div>
     </div>
   );
 
+  if (!authed) return (
+    <main className="fp-intro flex min-h-[100dvh] items-center justify-center p-4 sm:p-8">
+      <div className="fp-orbit fp-orbit-one" aria-hidden="true" />
+      <div className="fp-orbit fp-orbit-two" aria-hidden="true" />
+      <section className="fp-access-panel relative z-10 w-full max-w-md" aria-labelledby="intro-title">
+        <div className="fp-access-topline">
+          <span className="fp-system-state"><span /> SYSTEM READY</span>
+          <span className="fp-system-code">FP / 01</span>
+        </div>
+
+        <div className="fp-brand-mark" aria-hidden="true">
+          <Car className="h-7 w-7" />
+        </div>
+        <p className="fp-eyebrow"><Sparkles className="h-3.5 w-3.5" /> Precision parking control</p>
+        <h1 id="intro-title" className="fp-intro-title">주차 등록을<br />가장 정교하게.</h1>
+        <p className="fp-intro-copy">
+          입차 현황 확인부터 무료주차 등록까지, 안전한 하나의 흐름으로 관리합니다.
+        </p>
+
+        <form className="mt-8 space-y-4" onSubmit={(event) => { event.preventDefault(); submitPw(); }}>
+          <input
+            type="text"
+            name="username"
+            value="freeparking"
+            autoComplete="username"
+            readOnly
+            tabIndex={-1}
+            className="sr-only"
+            aria-hidden="true"
+          />
+          <div className="space-y-2">
+            <label htmlFor="app-password" className="fp-field-label">접근 비밀번호</label>
+            <input
+              id="app-password"
+              type="password"
+              placeholder="비밀번호 입력"
+              value={pwInput}
+              onChange={(e) => { setPwInput(e.target.value); setPwError(false); }}
+              autoFocus
+              autoComplete="current-password"
+              aria-invalid={pwError}
+              aria-describedby={pwError ? "password-error" : undefined}
+              suppressHydrationWarning
+              className={clsx("fp-input w-full", pwError && "fp-input-error")}
+            />
+            {pwError && <p id="password-error" role="alert" className="text-xs text-rose-300">비밀번호가 올바르지 않거나 연결에 실패했습니다.</p>}
+          </div>
+          <button
+            type="submit"
+            disabled={!pwInput || authSubmitting}
+            className="fp-primary-button w-full"
+          >
+            {authSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+            {authSubmitting ? '보안 확인 중...' : '시스템 시작'}
+          </button>
+        </form>
+
+        <div className="fp-trust-line">
+          <LockKeyhole className="h-3.5 w-3.5" />
+          암호화된 세션 · 30일 안전 로그인
+        </div>
+      </section>
+    </main>
+  );
+
   return (
-    <div className="min-h-screen bg-gray-950 p-4 md:p-8">
+    <div className="fp-shell min-h-[100dvh] p-4 md:p-8">
       {toast && (
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-medium text-white shadow-lg ${toast.ok ? 'bg-green-600' : 'bg-red-500'}`}>
+        <div role="status" aria-live="polite" className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-medium text-white shadow-lg ${toast.ok ? 'bg-emerald-600' : 'bg-rose-500'}`}>
           {toast.msg}
         </div>
       )}
       {pendingDeleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPendingDeleteId(null)}>
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-72 space-y-4" onClick={e => e.stopPropagation()}>
-            <p className="text-white text-sm font-medium text-center">차량을 삭제하시겠습니까?</p>
+          <div role="dialog" aria-modal="true" aria-labelledby="delete-title" className="fp-panel rounded-2xl p-6 w-72 space-y-4" onClick={e => e.stopPropagation()}>
+            <p id="delete-title" className="text-slate-100 text-sm font-medium text-center">차량을 완전히 삭제할까요?</p>
             <p className="text-gray-400 text-xs text-center">
               {cars.find(c => c.id === pendingDeleteId)?.plate}
               {cars.find(c => c.id === pendingDeleteId)?.label ? ` · ${cars.find(c => c.id === pendingDeleteId)?.label}` : ''}
@@ -712,26 +884,36 @@ export default function Home() {
           </div>
         </div>
       )}
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="fp-content max-w-2xl mx-auto space-y-6">
         {/* 헤더 */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 rounded-xl p-2.5">
-              <Car className="w-6 h-6 text-white" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="fp-brand-mark fp-brand-mark-small">
+              <Car className="w-6 h-6" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-white">무료주차 자동등록</h1>
-              <p className="text-xs text-gray-400">HI PARKING · 의왕 에이스 청계타워</p>
+            <div className="min-w-0">
+              <p className="fp-eyebrow mb-1">Control center</p>
+              <h1 className="text-base font-bold leading-tight text-slate-100 sm:text-xl">무료주차 자동등록</h1>
+              <p className="truncate text-xs text-slate-400">HI PARKING · 의왕 에이스 청계타워</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowSettings((v) => !v)}
-            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-800"
-          >
-            <Settings className="w-4 h-4" />
-            설정
-            {showSettings ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button onClick={shareApp} className="fp-utility-button" aria-label="앱 공유하기">
+              <Share2 className="w-4 h-4" /><span className="hidden sm:inline">공유</span>
+            </button>
+            <button
+              onClick={() => setShowSettings((v) => !v)}
+              className="fp-utility-button"
+              aria-expanded={showSettings}
+              aria-controls="settings-panel"
+            >
+              <Settings className="w-4 h-4" /><span className="hidden sm:inline">설정</span>
+              {showSettings ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+            <button onClick={lockApp} className="fp-utility-button" aria-label="앱 잠그기" title="앱 잠그기">
+              <LockKeyhole className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* 오류 시 클로드코드 전달 버튼 */}
@@ -741,10 +923,12 @@ export default function Home() {
 
         {/* 설정 패널 */}
         {showSettings && (
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3">
+          <div id="settings-panel" className="fp-panel rounded-2xl p-5 space-y-3">
             <h2 className="text-sm font-semibold text-gray-300">나이스파크 관리자 설정</h2>
             <div className="space-y-2">
+              <label htmlFor="parking-url" className="fp-field-label">사이트 URL</label>
               <input
+                id="parking-url"
                 type="text"
                 placeholder="사이트 URL (예: https://parking.nicepark.co.kr/...)"
                 value={settings.url}
@@ -752,20 +936,28 @@ export default function Home() {
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />
               <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="관리자 아이디"
-                  value={settings.id}
-                  onChange={(e) => setSettings((s) => ({ ...s, id: e.target.value }))}
-                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                />
-                <input
-                  type="password"
-                  placeholder="비밀번호"
-                  value={settings.pw}
-                  onChange={(e) => setSettings((s) => ({ ...s, pw: e.target.value }))}
-                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                />
+                <div className="space-y-2">
+                  <label htmlFor="parking-id" className="fp-field-label">관리자 아이디</label>
+                  <input
+                    id="parking-id"
+                    type="text"
+                    placeholder="관리자 아이디"
+                    value={settings.id}
+                    onChange={(e) => setSettings((s) => ({ ...s, id: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-cyan-400"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="parking-password" className="fp-field-label">관리자 비밀번호</label>
+                  <input
+                    id="parking-password"
+                    type="password"
+                    placeholder="비밀번호"
+                    value={settings.pw}
+                    onChange={(e) => setSettings((s) => ({ ...s, pw: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-cyan-400"
+                  />
+                </div>
               </div>
             </div>
             <button
@@ -778,16 +970,18 @@ export default function Home() {
         )}
 
         {/* 차량 추가 */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+        <div className="fp-panel rounded-2xl overflow-hidden">
           <button
             onClick={() => setShowAddCar((v) => !v)}
             className="w-full flex items-center justify-between px-5 py-4 text-left"
+            aria-expanded={showAddCar}
+            aria-controls="add-car-panel"
           >
             <h2 className="text-sm font-semibold text-gray-300">차량 추가</h2>
             <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showAddCar ? 'rotate-180' : ''}`} />
           </button>
 
-          {showAddCar && <div className="px-5 pb-5 space-y-3">
+          {showAddCar && <div id="add-car-panel" className="px-5 pb-5 space-y-3">
             <div className="flex items-center justify-end">
               <button
                 onClick={() => setShowBulk((v) => !v)}
@@ -800,7 +994,9 @@ export default function Home() {
 
           {showBulk ? (
             <div className="space-y-2">
+              <label htmlFor="bulk-cars" className="fp-field-label">차량 목록 붙여넣기</label>
               <textarea
+                id="bulk-cars"
                 rows={6}
                 placeholder={"차량번호를 한 줄에 하나씩 붙여넣기\n예:\n325무9913 홍길동\n12가3456\n서울 가 1234 메모"}
                 value={bulkText}
@@ -824,8 +1020,11 @@ export default function Home() {
               </div>
             </div>
           ) : (
-            <div className="flex gap-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_44px] sm:items-end sm:gap-2">
+              <div className="space-y-2">
+                <label htmlFor="new-plate" className="fp-field-label">차량번호</label>
               <input
+                id="new-plate"
                 type="text"
                 placeholder="차량번호 (예: 12가3456)"
                 value={newPlate}
@@ -833,17 +1032,23 @@ export default function Home() {
                 onKeyDown={(e) => e.key === "Enter" && addCar()}
                 className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="new-label" className="fp-field-label">메모</label>
               <input
+                id="new-label"
                 type="text"
                 placeholder="메모 (선택)"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addCar()}
-                className="w-28 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />
+              </div>
               <button
                 onClick={addCar}
-                className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg transition-colors"
+                className="min-h-11 bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-3 py-2 rounded-lg transition-colors"
+                aria-label="차량 추가"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -853,7 +1058,7 @@ export default function Home() {
         </div>
 
         {/* 차량 목록 */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+        <div className="fp-panel rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 border-b border-gray-800">
             <h2 className="text-sm font-semibold text-gray-300">
               차량 목록{" "}
@@ -886,18 +1091,7 @@ export default function Home() {
             </div>
           ) : (
             <div className="divide-y divide-gray-800/50">
-              {[...cars].sort((a, b) => {
-                const p = (plate: string) => {
-                  const s = statusMap[plate];
-                  if (!s) return 5;
-                  if (s.status === 'entered') return 0;
-                  if (s.status === 'registered' && !s.exitedAfterRegistration) return 1;
-                  if (s.exitedAfterRegistration) return 2;
-                  if (s.status === 'not_entered') return 3;
-                  return 4; // no_quota, error, multi_car
-                };
-                return p(a.plate) - p(b.plate);
-              }).map((car) => (
+              {cars.map((car) => (
                 <div
                   key={car.id}
                   className={clsx(
@@ -910,6 +1104,7 @@ export default function Home() {
                     checked={car.selected}
                     onChange={() => toggleCar(car.id)}
                     className="w-5 h-5 accent-blue-500 cursor-pointer shrink-0"
+                    aria-label={`${car.plate} 등록 선택`}
                   />
                   {editingId === car.id ? (
                     <>
@@ -920,6 +1115,7 @@ export default function Home() {
                           onChange={(e) => setEditPlate(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") updateCar(car.id); if (e.key === "Escape") setEditingId(null); }}
                           placeholder="차량번호"
+                          aria-label={`${car.plate} 차량번호 수정`}
                           className="w-28 bg-gray-800 border border-blue-500 rounded px-2 py-0.5 text-xs font-mono text-white focus:outline-none"
                         />
                         <input
@@ -927,6 +1123,7 @@ export default function Home() {
                           onChange={(e) => setEditLabel(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") updateCar(car.id); if (e.key === "Escape") setEditingId(null); }}
                           placeholder="메모 (선택)"
+                          aria-label={`${car.plate} 메모 수정`}
                           className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-0.5 text-xs text-white focus:outline-none"
                         />
                       </div>
@@ -934,6 +1131,7 @@ export default function Home() {
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => updateCar(car.id)}
                         className="text-blue-400 hover:text-blue-300 transition-colors"
+                        aria-label={`${car.plate} 수정 저장`}
                       >
                         <Check className="w-4 h-4" />
                       </button>
@@ -956,6 +1154,7 @@ export default function Home() {
                           onChange={(e) => saveTicketChoice(car.id, e.target.value)}
                           title="기본 권종 (저장됨 — 현황조회 후에도 유지)"
                           className="bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+                          aria-label={`${car.plate} 기본 권종`}
                         >
                           {TICKET_OPTIONS.map((o) => (
                             <option key={o.dCode} value={o.dCode}>{o.label}</option>
@@ -1024,14 +1223,18 @@ export default function Home() {
         )}
 
         {/* 실행 버튼 */}
+        <div className="fp-safety-note">
+          <ShieldCheck className="h-4 w-4" />
+          <span>{checkingStatus ? '현황 갱신이 끝나면 등록할 수 있습니다.' : '선택한 차량만 조회 후 안전하게 등록합니다.'}</span>
+        </div>
         <button
           onClick={runRegistration}
-          disabled={running || selectedCount === 0}
+          disabled={registrationDisabled}
           className={clsx(
             "w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-sm transition-all",
-            running || selectedCount === 0
+            registrationDisabled
               ? "bg-gray-800 text-gray-600 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/30"
+              : "fp-primary-button shadow-lg shadow-cyan-950/30"
           )}
         >
           {running ? (
@@ -1054,7 +1257,7 @@ export default function Home() {
           const pct = total > 0 ? Math.round((done / total) * 100) : 0;
           const success = logs.filter((l) => l.status === "success").length;
           return (
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+          <div className="fp-panel rounded-2xl overflow-hidden">
             {/* 진행률 바 */}
             <div className="px-5 pt-4 pb-2 space-y-1.5">
               <div className="flex items-center justify-between text-xs text-gray-400">
@@ -1076,18 +1279,18 @@ export default function Home() {
             <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-300">실행 결과</h2>
               <button
-                onClick={copyLogs}
+                onClick={shareLogs}
                 className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-2.5 py-1.5 rounded-lg hover:bg-gray-800"
               >
                 {copied ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-green-400" />
-                    <span className="text-green-400">복사됨</span>
+                    <span className="text-green-400">완료</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3.5 h-3.5" />
-                    복사
+                    <Share2 className="w-3.5 h-3.5" />
+                    결과 공유
                   </>
                 )}
               </button>

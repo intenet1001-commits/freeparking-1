@@ -23,6 +23,8 @@ import {
   LockKeyhole,
   ShieldCheck,
   Sparkles,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabase";
@@ -97,6 +99,8 @@ export default function Home() {
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState(false);
+  const [pwErrorMessage, setPwErrorMessage] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [cars, setCars] = useState<CarEntry[]>([]);
   const [newPlate, setNewPlate] = useState("");
   const [newLabel, setNewLabel] = useState("");
@@ -744,17 +748,25 @@ export default function Home() {
   }
 
   async function submitPw() {
-    if (!pwInput || authSubmitting) return;
+    const normalizedPassword = pwInput.trim();
+    if (!normalizedPassword || authSubmitting) return;
     setAuthSubmitting(true);
     setPwError(false);
+    setPwErrorMessage('');
     try {
       const response = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pwInput }),
+        body: JSON.stringify({ password: normalizedPassword }),
       });
       if (!response.ok) {
+        const data = await response.json().catch(() => null);
         setPwError(true);
+        setPwErrorMessage(
+          typeof data?.error === 'string'
+            ? data.error
+            : '로그인에 실패했습니다. 네트워크 연결을 확인해주세요.'
+        );
         return;
       }
       const data = await response.json();
@@ -810,7 +822,7 @@ export default function Home() {
       <section className="fp-access-panel relative z-10 w-full max-w-md" aria-labelledby="intro-title">
         <div className="fp-access-topline">
           <span className="fp-system-state"><span /> SYSTEM READY</span>
-          <span className="fp-system-code">FP / 01</span>
+          <span className="fp-system-code">FP / 02</span>
         </div>
 
         <div className="fp-brand-mark" aria-hidden="true">
@@ -835,20 +847,37 @@ export default function Home() {
           />
           <div className="space-y-2">
             <label htmlFor="app-password" className="fp-field-label">접근 비밀번호</label>
-            <input
-              id="app-password"
-              type="password"
-              placeholder="비밀번호 입력"
-              value={pwInput}
-              onChange={(e) => { setPwInput(e.target.value); setPwError(false); }}
-              autoFocus
-              autoComplete="current-password"
-              aria-invalid={pwError}
-              aria-describedby={pwError ? "password-error" : undefined}
-              suppressHydrationWarning
-              className={clsx("fp-input w-full", pwError && "fp-input-error")}
-            />
-            {pwError && <p id="password-error" role="alert" className="text-xs text-rose-300">비밀번호가 올바르지 않거나 연결에 실패했습니다.</p>}
+            <div className="relative">
+              <input
+                id="app-password"
+                type={showPw ? "text" : "password"}
+                placeholder="비밀번호 입력"
+                value={pwInput}
+                onChange={(e) => {
+                  setPwInput(e.target.value);
+                  setPwError(false);
+                  setPwErrorMessage('');
+                }}
+                autoFocus
+                autoComplete="current-password"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                aria-invalid={pwError}
+                aria-describedby={pwError ? "password-error" : undefined}
+                suppressHydrationWarning
+                className={clsx("fp-input w-full pr-12", pwError && "fp-input-error")}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((value) => !value)}
+                aria-label={showPw ? "비밀번호 숨기기" : "비밀번호 표시"}
+                className="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-slate-400 hover:text-cyan-300"
+              >
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            {pwError && <p id="password-error" role="alert" className="text-xs text-rose-300">{pwErrorMessage}</p>}
           </div>
           <button
             type="submit"

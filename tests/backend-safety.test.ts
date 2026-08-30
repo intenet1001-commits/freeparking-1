@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
+import { NextRequest, NextResponse } from "next/server";
 import {
   parseCars,
   parsePlates,
@@ -8,7 +10,13 @@ import {
   validateParkingUrl,
 } from "../lib/api-validation";
 import { resolveUrl } from "../lib/ajpark-http";
-import { isAppAuthConfigured, verifyAppPassword } from "../lib/api-auth";
+import {
+  APP_SESSION_COOKIE,
+  isAppAuthConfigured,
+  isAppAuthorized,
+  setAppSession,
+  verifyAppPassword,
+} from "../lib/api-auth";
 import { LoginRateLimiter } from "../lib/login-rate-limit";
 
 test("parking URL blocks private and link-local targets", () => {
@@ -72,6 +80,39 @@ test("app authentication fails closed without strong environment secrets", () =>
     assert.equal(isAppAuthConfigured(), true);
     assert.equal(verifyAppPassword("a-secure-password"), true);
     assert.equal(verifyAppPassword("wrong-password"), false);
+  } finally {
+    if (previousPassword === undefined) delete process.env.APP_PASSWORD;
+    else process.env.APP_PASSWORD = previousPassword;
+    if (previousSecret === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = previousSecret;
+  }
+});
+
+test("existing installed-app sessions survive the session-token migration", () => {
+  const previousPassword = process.env.APP_PASSWORD;
+  const previousSecret = process.env.AUTH_SECRET;
+  try {
+    process.env.APP_PASSWORD = "a-secure-password";
+    process.env.AUTH_SECRET = "0123456789abcdef0123456789abcdef";
+
+    const legacyToken = createHmac("sha256", process.env.AUTH_SECRET)
+      .update(`freeparking-session-v1:${process.env.APP_PASSWORD}`)
+      .digest("base64url");
+    const legacyRequest = new NextRequest("https://freeparking.example/", {
+      headers: { cookie: `${APP_SESSION_COOKIE}=${legacyToken}` },
+    });
+    assert.equal(isAppAuthorized(legacyRequest), true);
+
+    const response = NextResponse.json({ ok: true });
+    setAppSession(response);
+    const currentToken = response.cookies.get(APP_SESSION_COOKIE)?.value;
+    assert.ok(currentToken);
+
+    process.env.APP_PASSWORD = "a-changed-password";
+    const currentRequest = new NextRequest("https://freeparking.example/", {
+      headers: { cookie: `${APP_SESSION_COOKIE}=${currentToken}` },
+    });
+    assert.equal(isAppAuthorized(currentRequest), true);
   } finally {
     if (previousPassword === undefined) delete process.env.APP_PASSWORD;
     else process.env.APP_PASSWORD = previousPassword;

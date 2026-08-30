@@ -18,7 +18,17 @@ export function isAppAuthConfigured(): boolean {
   return appPassword() !== null && authSecret() !== null;
 }
 
-function sessionToken(): string | null {
+function currentSessionToken(): string | null {
+  const signingSecret = authSecret();
+  if (!signingSecret) return null;
+  return createHmac("sha256", signingSecret)
+    .update("freeparking-session-v2")
+    .digest("base64url");
+}
+
+// v1 세션은 앱 비밀번호를 토큰 재료로 사용했다. 이미 설치된 앱의 30일
+// 세션을 끊지 않기 위해 마이그레이션 기간 동안 기존 토큰도 계속 허용한다.
+function legacySessionToken(): string | null {
   const password = appPassword();
   const signingSecret = authSecret();
   if (!password || !signingSecret) return null;
@@ -40,12 +50,13 @@ export function verifyAppPassword(candidate: string): boolean {
 
 export function isAppAuthorized(req: NextRequest): boolean {
   const incoming = req.cookies.get(APP_SESSION_COOKIE)?.value ?? "";
-  const expected = sessionToken();
-  return expected !== null && safeEqual(incoming, expected);
+  const acceptedTokens = [currentSessionToken(), legacySessionToken()]
+    .filter((token): token is string => token !== null);
+  return acceptedTokens.some((token) => safeEqual(incoming, token));
 }
 
 export function setAppSession(response: NextResponse): void {
-  const token = sessionToken();
+  const token = currentSessionToken();
   if (!token) throw new Error("앱 인증 환경 변수가 설정되지 않았습니다.");
   response.cookies.set(APP_SESSION_COOKIE, token, {
     httpOnly: true,

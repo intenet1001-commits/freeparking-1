@@ -112,6 +112,7 @@ export default function Home() {
   const [editLabel, setEditLabel] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({ url: "", id: "", pw: "" });
+  const [serverSettingsReady, setServerSettingsReady] = useState(false);
   const [now, setNow] = useState(0); // 경과시간 실시간 갱신용 (0=미초기화)
   const [statusMap, setStatusMap] = useState<Record<string, CarStatus>>({});
   const [checkingStatus, setCheckingStatus] = useState(false);
@@ -123,7 +124,10 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/auth", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data) => setAuthed(data.authenticated === true))
+      .then((data) => {
+        setAuthed(data.authenticated === true);
+        setServerSettingsReady(data.parkingConfigured === true);
+      })
       .catch(() => setAuthed(false))
       .finally(() => setAuthReady(true));
   }, []);
@@ -204,7 +208,7 @@ export default function Home() {
   useEffect(() => {
     if (cars.length > 0 && !initialStatusLoaded.current) {
       initialStatusLoaded.current = true;
-      if (settings.url && settings.id && settings.pw) {
+      if (serverSettingsReady || (settings.url && settings.id && settings.pw)) {
         runStatusCheck();
       } else {
         loadLastStatus();
@@ -388,7 +392,7 @@ export default function Home() {
   async function runStatusCheck() {
     const plates = cars.map((c) => c.plate);
     if (plates.length === 0) return;
-    if (!settings.url || !settings.id || !settings.pw) {
+    if (!settingsReady) {
       setShowSettings(true);
       setToast({ msg: '먼저 주차 시스템 설정을 완료해주세요.', ok: false });
       return;
@@ -753,6 +757,8 @@ export default function Home() {
         setPwError(true);
         return;
       }
+      const data = await response.json();
+      setServerSettingsReady(data.parkingConfigured === true);
       setPwInput('');
       setAuthed(true);
     } catch {
@@ -765,6 +771,7 @@ export default function Home() {
   async function lockApp() {
     await fetch('/api/auth', { method: 'DELETE' }).catch(() => undefined);
     setAuthed(false);
+    setServerSettingsReady(false);
     setPwInput('');
   }
 
@@ -779,7 +786,7 @@ export default function Home() {
   })();
 
   const selectedCount = cars.filter((c) => c.selected).length;
-  const settingsReady = Boolean(settings.url && settings.id && settings.pw);
+  const settingsReady = serverSettingsReady || Boolean(settings.url && settings.id && settings.pw);
   const registrationDisabled = running || checkingStatus || selectedCount === 0 || !settingsReady;
 
   if (!authReady) return (
@@ -939,6 +946,17 @@ export default function Home() {
         {showSettings && (
           <div id="settings-panel" className="fp-panel rounded-2xl p-5 space-y-3">
             <h2 className="text-sm font-semibold text-gray-300">나이스파크 관리자 설정</h2>
+            {serverSettingsReady ? (
+              <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-300">
+                  <ShieldCheck className="h-4 w-4" />
+                  하이파크 계정 저장 완료
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  URL·아이디·비밀번호가 서버에 안전하게 저장되어 있어 앱을 새로 열어도 다시 입력할 필요가 없습니다.
+                </p>
+              </div>
+            ) : <>
             <div className="space-y-2">
               <label htmlFor="parking-url" className="fp-field-label">사이트 URL</label>
               <input
@@ -980,6 +998,7 @@ export default function Home() {
             >
               저장
             </button>
+            </>}
           </div>
         )}
 

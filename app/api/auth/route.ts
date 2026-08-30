@@ -12,9 +12,19 @@ export const dynamic = "force-dynamic";
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
+function hasServerParkingSettings(): boolean {
+  return [process.env.NICEPARK_URL, process.env.NICEPARK_ID, process.env.NICEPARK_PW]
+    .every((value) => Boolean(value?.trim()));
+}
+
 export async function GET(req: NextRequest) {
+  const authenticated = isAppAuthorized(req);
   return NextResponse.json(
-    { authenticated: isAppAuthorized(req), configured: isAppAuthConfigured() },
+    {
+      authenticated,
+      configured: isAppAuthConfigured(),
+      parkingConfigured: authenticated && hasServerParkingSettings(),
+    },
     { headers: NO_STORE_HEADERS }
   );
 }
@@ -55,7 +65,10 @@ export async function POST(req: NextRequest) {
   }
 
   loginRateLimiter.success(clientKey);
-  const response = NextResponse.json({ authenticated: true }, { headers: NO_STORE_HEADERS });
+  const response = NextResponse.json(
+    { authenticated: true, parkingConfigured: hasServerParkingSettings() },
+    { headers: NO_STORE_HEADERS }
+  );
   setAppSession(response);
   return response;
 }

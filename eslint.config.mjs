@@ -10,6 +10,7 @@ const config = [
       "tests/screenshots/**",
       "next-env.d.ts",
       "tsconfig.tsbuildinfo",
+      ".playwright-cli/**",
     ],
   },
   ...nextVitals,

@@ -10,3 +10,4 @@ data/
 output/
 .cs-artifacts/
 *.tsbuildinfo
+.playwright-cli/

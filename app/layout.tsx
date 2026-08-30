@@ -4,6 +4,16 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "무료주차 자동등록 | 나이스파크",
   description: "나이스파크 무료주차 일괄 자동등록 관리 시스템",
+  manifest: "/manifest.webmanifest",
+  applicationName: "무료주차 자동등록",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "무료주차",
+  },
+  formatDetection: {
+    telephone: false,
+  },
 };
 
 // 모바일 우선: App Router는 viewport를 자동 주입하지 않으므로 명시.

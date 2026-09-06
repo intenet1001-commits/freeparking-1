@@ -680,7 +680,7 @@ export default function Home() {
       setToast({ msg: message, ok: false });
     } finally {
       setRunning(false);
-      // Save logs to Supabase → 완료 후 배지 갱신
+      // 배지는 SSE 결과를 유지한다. 저장 기록으로 최신 조회 결과를 덮어쓰지 않는다.
       setLogs((currentLogs) => {
         const logsToSave = currentLogs.filter(
           (l) => !["pending", "running"].includes(l.status)
@@ -699,8 +699,6 @@ export default function Home() {
             )
             .then(({ error }) => {
               if (error) console.error("로그 저장 실패:", error.message);
-              // Supabase insert 후 fp_logs에서 최신 상태 로드 → 배지 확정 갱신
-              setTimeout(() => loadLastStatus(), 300);
             });
         }
         return currentLogs;
@@ -741,9 +739,6 @@ export default function Home() {
         ? { ...log, status: "failed", message }
         : log));
       setToast({ msg: message, ok: false });
-    } finally {
-      // 선택 등록 완료 후 배지 갱신
-      setTimeout(() => loadLastStatus(), 300);
     }
   }
 

@@ -71,8 +71,9 @@ export function parseEntryDateTime(html: string): string | undefined {
 
 export function parseAppliedDiscount(html: string): { name: string; kind: TicketKind } | undefined {
   const text = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ');
-  const m = text.match(/적용내역\s+([^:]+?)\s*:\s*\d/);
+  const m = text.match(/적용내역\s+([^:]+?)\s*:\s*(\d+)/);
   if (!m) return undefined;
+  if (Number(m[2]) <= 0) return undefined;
   const name = m[1].trim();
   if (!name || name.length > 30) return undefined;
   return { name, kind: name.includes('종일') ? 'allDay' : 'hourly' };
@@ -227,9 +228,15 @@ export async function checkCarStatuses(
         continue;
       }
 
+      // 공통 할인 폼/과거 내역만으로 현재 차량의 등록 여부를 확정하지 않는다.
+      if (buttons.length > 0 && (!sysPlate || !entryTime)) {
+        emit({ plate, status: 'error', message: '현재 차량의 입차 정보를 확인할 수 없습니다. 다시 조회해주세요.' });
+        continue;
+      }
+
       const baseFields = { entryTime, entryAt, quotaAllDay, quotaHourly };
 
-      if (applied) {
+      if (applied && sysPlate && entryTime) {
         emit({
           plate,
           status: 'registered',

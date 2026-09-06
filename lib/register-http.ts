@@ -5,6 +5,7 @@ import {
   parseEntryDateTime,
   parseDiscountButtons,
   parseMatchedPlate,
+  parseAppliedDiscount,
   isEntered,
   type DiscountButton,
 } from './check-status';
@@ -169,6 +170,10 @@ export async function registerCarsHttp(
         emit({ plate, status: 'not_entered', message: '입차 없음 (번호판 불일치)', entryTime, entryAt });
         continue;
       }
+      if (!sysPlate || !entryTime) {
+        emit({ plate, status: 'failed', message: '현재 차량의 입차 정보를 확인할 수 없어 등록하지 않았습니다.' });
+        continue;
+      }
       const display = sysPlate ?? plate;
 
       // 차량별 권종 선택 (ticketChoice=dCode). 미지정이면 종일권 기본.
@@ -186,16 +191,19 @@ export async function registerCarsHttp(
       const btnLabel = target.name;
       const appliedKind: 'allDay' | 'hourly' = target.kind;
 
-      // disabled: 잔여 0이면 소진(실패), 0 아니면 이미 처리됨(패스)
+      // 비활성 버튼만으로 등록 완료를 추정하지 않고 실제 적용내역을 확인한다.
       if (target.disabled) {
-        if (target.quota === 0) {
-          emit({ plate, status: 'failed', message: `${display} ${btnLabel} 잔여 매수 없음${entrySuffix}`, entryTime, entryAt });
-        } else {
+        const applied = parseAppliedDiscount(html);
+        if (applied?.name === target.name) {
           emit({
             plate, status: 'skipped',
             message: `${display} 이미 오늘 ${btnLabel} 처리됨${entrySuffix}`,
             entryTime, entryAt, appliedName: btnLabel, appliedKind,
           });
+        } else if (target.quota === 0) {
+          emit({ plate, status: 'failed', message: `${display} ${btnLabel} 잔여 매수 없음${entrySuffix}`, entryTime, entryAt });
+        } else {
+          emit({ plate, status: 'failed', message: `${display} ${btnLabel} 사용 불가 — 적용내역 확인 필요${entrySuffix}`, entryTime, entryAt });
         }
         continue;
       }

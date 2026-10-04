@@ -1,0 +1,43 @@
+name: 수동 푸시 테스트
+
+on:
+  workflow_dispatch:
+    inputs:
+      event_key:
+        description: '중복 발송 방지 키 (manual:로 시작)'
+        required: true
+        type: string
+      title:
+        description: '알림 제목'
+        required: true
+        type: string
+      body:
+        description: '알림 본문'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: 테스트 푸시 발송
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          TEST_PUSH_EVENT_KEY: ${{ inputs.event_key }}
+          TEST_PUSH_TITLE: ${{ inputs.title }}
+          TEST_PUSH_BODY: ${{ inputs.body }}
+        run: npx tsx scripts/manual-test-push.ts

@@ -25,9 +25,11 @@ import {
   Sparkles,
   Eye,
   EyeOff,
+  RefreshCw,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabase";
+import PushSettings from "./push-settings";
 
 type CarEntry = {
   id: string;
@@ -943,6 +945,9 @@ export default function Home() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            <button onClick={() => window.location.reload()} className="fp-utility-button" aria-label="최신 버전 새로고침" title="최신 버전 새로고침">
+              <RefreshCw className="w-4 h-4" /><span className="hidden sm:inline">새로고침</span>
+            </button>
             <button onClick={shareApp} className="fp-utility-button" aria-label="앱 공유하기">
               <Share2 className="w-4 h-4" /><span className="hidden sm:inline">공유</span>
             </button>
@@ -960,6 +965,8 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        <PushSettings />
 
         {/* 오류 시 클로드코드 전달 버튼 */}
         {logs.length > 0 && !running && logs.some(l => l.status === "failed") && (

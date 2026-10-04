@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCarStatuses } from '@/lib/check-status';
 import { isAppAuthorized } from '@/lib/api-auth';
+import { kstHour, sendPushEvent } from '@/lib/push';
 import {
   parseParkingSettings,
   parsePlates,
@@ -48,12 +49,24 @@ export async function POST(req: NextRequest) {
       };
       // 프록시/모바일 버퍼링 방지: 연결 즉시 SSE 주석 1회 전송
       if (!closed) controller.enqueue(encoder.encode(': ping\n\n'));
+      let errors = 0;
       try {
         await checkCarStatuses(settings.url, settings.id, settings.pw, plates, (data) => {
+          if (data.status === 'error') errors += 1;
           send(data);
         });
       } catch {
+        errors += 1;
         send({ error: '현황 조회 중 서버 오류가 발생했습니다.' });
+      }
+      if (errors) {
+        try {
+          await sendPushEvent(`error:status:${kstHour()}`, {
+            title: '주차 현황 조회 오류',
+            body: `${errors}건의 조회 오류가 발생했습니다. 앱에서 현황을 확인해주세요.`,
+            tag: 'parking-status-error',
+          });
+        } catch (error) { console.error('[status] 오류 알림 실패:', error); }
       }
       send({ done: true });
       if (!closed) controller.close();

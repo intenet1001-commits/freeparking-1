@@ -1,4 +1,7 @@
 {
+  "crons": [
+    { "path": "/api/cron/sunday-summary", "schedule": "0 3 * * 0" }
+  ],
   "functions": {
     "app/api/register/route.ts": {
       "maxDuration": 60
@@ -7,6 +10,9 @@
       "maxDuration": 60
     },
     "app/api/cron/auto-register/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/sunday-summary/route.ts": {
       "maxDuration": 60
     }
   }

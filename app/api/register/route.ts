@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { registerCarsHttp } from '@/lib/register-http';
 import { isAppAuthorized } from '@/lib/api-auth';
+import { kstHour, sendPushEvent } from '@/lib/push';
 import {
   parseCars,
   parseParkingSettings,
@@ -62,6 +63,15 @@ export async function POST(req: NextRequest) {
         const msg = '등록 처리 중 서버 오류가 발생했습니다.';
         errors.push(msg);
         send({ error: msg });
+      }
+      if (errors.length) {
+        try {
+          await sendPushEvent(`error:register:${kstHour()}`, {
+            title: '무료주차 등록 오류',
+            body: `${errors.length}건의 등록 오류가 발생했습니다. 앱에서 결과를 확인해주세요.`,
+            tag: 'parking-register-error',
+          });
+        } catch (error) { console.error('[register] 오류 알림 실패:', error); }
       }
       send({ done: true, errors });
       if (!closed) controller.close();

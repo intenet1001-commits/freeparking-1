@@ -1,13 +1,13 @@
-name: 무료주차 자동등록 (매주 일요일 9시~15시 매시)
+name: 무료주차 자동등록 (매주 일요일 9시~15시 매시 7분)
 
 on:
   schedule:
-    # UTC 00:00~06:00 = KST 09:00~15:00, 일요일, 매시 정각
+    # UTC 00:07~06:07 = KST 09:07~15:07, 일요일, 매시 7분
     # GitHub Actions의 schedule은 정시(top of hour)에 특히 지연되기 쉬워
-    # (관측: 실제 실행이 예정보다 3~5시간 늦게 발화) 1회가 아닌 매시 여러 번
+    # (관측: 실제 실행이 예정보다 3~5시간 늦게 발화) 정시를 피하고 매시 여러 번
     # 시도해 입차 시간대를 놓치지 않도록 한다. 이미 등록된 차량은 'skipped'
     # 처리되어 재실행에 부작용 없음(멱등) — concurrency로 겹침 실행만 방지.
-    - cron: '0 0-6 * * 0'
+    - cron: '7 0-6 * * 0'
   workflow_dispatch:        # 수동 실행 (테스트용)
 
 concurrency:
@@ -36,4 +36,20 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
         run: npx tsx scripts/cron-register.ts
+
+      # Vercel 정오 예약 실행이 지연될 때의 보조 호출. DB event_key가 중복 알림을 막는다.
+      - name: 일요일 정오 현황 알림 보강
+        if: always()
+        env:
+          PARKING_APP_URL: ${{ secrets.PARKING_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ "$(TZ=Asia/Seoul date +%H)" = "12" ] && [ -n "$PARKING_APP_URL" ] && [ -n "$CRON_SECRET" ]; then
+            curl --fail-with-body --silent --show-error \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "${PARKING_APP_URL%/}/api/cron/sunday-summary"
+          fi

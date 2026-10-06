@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "project.script-lint",
+  "title": "lint 스크립트",
+  "intent": "package.json의 `lint` 스크립트를 그대로 실행한다.",
+  "origin": "discovered:package-script",
+  "tags": [
+    "package-script"
+  ],
+  "paths": [
+    "**"
+  ],
+  "safety": "read-only",
+  "risk": 0,
+  "cost": {
+    "estimateSeconds": 120
+  },
+  "steps": [
+    {
+      "type": "command",
+      "argv": [
+        "npm",
+        "run",
+        "lint"
+      ],
+      "timeoutSeconds": 600
+    }
+  ],
+  "requires": [
+    "node_modules"
+  ]
+}

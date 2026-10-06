@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "common.python-syntax",
+  "title": "Python 파일에 문법 오류가 없다",
+  "intent": "추적되는 Python 파일을 실행하지 않고 문법만 읽어 확인한다. 바이트코드 파일을 만들지 않는다.",
+  "origin": "common-pack",
+  "tags": [
+    "smoke",
+    "python"
+  ],
+  "paths": [
+    "**/*.py"
+  ],
+  "safety": "read-only",
+  "risk": 1,
+  "cost": {
+    "estimateSeconds": 5
+  },
+  "steps": [
+    {
+      "type": "command",
+      "argv": [
+        "{python}",
+        "-B",
+        "{runner}",
+        "probe",
+        "python-syntax",
+        "--root",
+        "{root}"
+      ],
+      "timeoutSeconds": 120,
+      "notApplicableExitCode": 78
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "templateVersion": "1.4.0",
+  "instructionVersion": 1,
+  "minimumRunnerVersion": "1.4.0",
+  "managedRunnerHash": "dcd791c9d3b5a6d7fc42a37b243a295f6f329982ff74f7abe26c69a29dbb0ebf",
+  "defaultProfile": "quick",
+  "scenarioPack": {
+    "version": "1.4.0",
+    "hashes": {
+      ".agentstoz/scenarios/common/conflict-markers.json": "a2669d990b24fd35e71614fd371c9bc73939ebbcb9da39f9678a75caa28f3b36",
+      ".agentstoz/scenarios/common/json-valid.json": "02a6144e4f420b6ae00dbbc5cc92ef185653924ce8a35d00b04f261514e535ab",
+      ".agentstoz/scenarios/common/python-syntax.json": "82cc4d6057d1b466c5ad0873d6d1a3d86b3eefb99a8c1bf66dd7673deb3fd1d1"
+    }
+  }
+}

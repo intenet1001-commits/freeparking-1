@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "project.unittest",
+  "title": "unittest",
+  "intent": "tests/의 test_*.py를 표준 라이브러리 unittest로 실행한다.",
+  "origin": "discovered:unittest",
+  "tags": [
+    "python"
+  ],
+  "paths": [
+    "**/*.py"
+  ],
+  "safety": "read-only",
+  "risk": 0,
+  "cost": {
+    "estimateSeconds": 60
+  },
+  "steps": [
+    {
+      "type": "command",
+      "argv": [
+        "{python}",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests"
+      ],
+      "timeoutSeconds": 600
+    }
+  ]
+}

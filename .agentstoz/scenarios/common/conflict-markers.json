@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "common.conflict-markers",
+  "title": "병합 충돌 표시가 남아 있지 않다",
+  "intent": "Git 병합 뒤 남은 충돌 표시 줄이 추적 파일에 없는지 확인한다. 남아 있으면 빌드나 설정이 조용히 깨진다.",
+  "origin": "common-pack",
+  "tags": [
+    "smoke",
+    "git"
+  ],
+  "paths": [
+    "**"
+  ],
+  "safety": "read-only",
+  "risk": 2,
+  "cost": {
+    "estimateSeconds": 5
+  },
+  "steps": [
+    {
+      "type": "command",
+      "argv": [
+        "{python}",
+        "-B",
+        "{runner}",
+        "probe",
+        "conflict-markers",
+        "--root",
+        "{root}"
+      ],
+      "timeoutSeconds": 120,
+      "notApplicableExitCode": 78
+    }
+  ]
+}

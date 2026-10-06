@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "quick": [
+      "project-tests"
+    ]
+  },
+  "checks": [
+    {
+      "id": "project-tests",
+      "timeoutSeconds": 300,
+      "evidence": "project-tests",
+      "memoryQueries": [
+        "test regression"
+      ],
+      "instructions": "Add this project's real test command; no tests have been verified yet.",
+      "argv": [
+        "npm",
+        "run",
+        "test"
+      ]
+    }
+  ],
+  "limits": [
+    "Only configured commands are verified; installed apps, accounts and deployment require separate evidence."
+  ]
+}

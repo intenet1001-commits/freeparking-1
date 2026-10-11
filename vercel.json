@@ -1,6 +1,7 @@
 {
   "crons": [
-    { "path": "/api/cron/sunday-summary", "schedule": "0 3 * * 0" }
+    { "path": "/api/cron/sunday-summary", "schedule": "0 3 * * 0" },
+    { "path": "/api/cron/registration-watchdog", "schedule": "0 3 * * 0" }
   ],
   "functions": {
     "app/api/register/route.ts": {
@@ -14,6 +15,9 @@
     },
     "app/api/cron/sunday-summary/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/registration-watchdog/route.ts": {
+      "maxDuration": 30
     }
   }
 }

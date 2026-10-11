@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.freeparking.local-watchdog</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/gwanli/product_2026/freeparking-1/scripts/local-watchdog.py</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>11</integer><key>Minute</key><integer>20</integer></dict>
+    <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>12</integer><key>Minute</key><integer>10</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/Users/gwanli/Library/Logs/freeparking-local-watchdog.log</string>
+  <key>StandardErrorPath</key><string>/Users/gwanli/Library/Logs/freeparking-local-watchdog-error.log</string>
+</dict>
+</plist>

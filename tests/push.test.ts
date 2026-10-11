@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { classifyCronRun } from '../lib/cron-watchdog';
 import { buildSundaySummary } from '../lib/sunday-summary';
 import { kstDate, parsePushSubscription, subscriptionHash } from '../lib/push';
 
@@ -46,4 +47,11 @@ test('push subscription rejects insecure and local endpoints', () => {
 test('event dates use Korea time at the UTC boundary', () => {
   assert.equal(kstDate(new Date('2026-10-03T15:00:00Z')), '2026-10-04');
   assert.equal(subscriptionHash('https://example.com/push').length, 64);
+});
+
+test('watchdog alerts when the scheduler never started or never completed', () => {
+  assert.equal(classifyCronRun([]), 'missing');
+  assert.equal(classifyCronRun(['running']), 'unfinished');
+  assert.equal(classifyCronRun(['failed']), 'failed');
+  assert.equal(classifyCronRun(['failed', 'done']), 'ok');
 });

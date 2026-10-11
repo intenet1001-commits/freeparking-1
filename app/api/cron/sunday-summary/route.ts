@@ -60,6 +60,17 @@ export async function GET(req: NextRequest) {
         console.error('[summary] 현황 조회 실패:', error);
       }
     }
+    // 운영 환경 설정 조회가 모두 실패하면, GitHub 자동등록에 쓰인 서버 저장 설정으로 재확인한다.
+    if (plates.length && (statuses.length === 0 || statuses.every((status) => status.status === 'error')) &&
+        saved.url && saved.id && saved.pw &&
+        (saved.url !== url || saved.id !== id || saved.pw !== pw)) {
+      statuses.length = 0;
+      try {
+        await checkCarStatuses(saved.url, saved.id, saved.pw, plates, (status) => statuses.push(status));
+      } catch (error) {
+        console.error('[summary] 보조 설정 현황 조회 실패:', error);
+      }
+    }
     const summary = buildSundaySummary(plates, statuses, (logsResult.data ?? []) as SummaryLog[]);
     const body = plates.length ? summary.body : '등록된 차량이 없습니다.';
     await sendPushEvent(`summary:${date}`, {

@@ -38,6 +38,11 @@ def main():
     if now.astimezone(KST).weekday() != 6:
         print("[local-watchdog] Sunday KST only")
         return
+    local_time = now.astimezone(KST).strftime("%H:%M")
+    if local_time in ("10:30", "12:00"):
+        kind = "health" if local_time == "10:30" else "summary"
+        gh("workflow", "run", "sunday-notifications.yml", "--ref", "main", "-f", f"kind={kind}")
+        print(f"[local-watchdog] {kind} notification requested")
     runs = json.loads(gh("run", "list", "--workflow", WORKFLOW, "--limit", "100",
                          "--json", "createdAt,status,conclusion"))
     state = decision(runs, now)

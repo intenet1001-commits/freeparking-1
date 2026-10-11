@@ -10,7 +10,9 @@
   </array>
   <key>StartCalendarInterval</key>
   <array>
+    <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>30</integer></dict>
     <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>11</integer><key>Minute</key><integer>20</integer></dict>
+    <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer></dict>
     <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>12</integer><key>Minute</key><integer>10</integer></dict>
   </array>
   <key>StandardOutPath</key><string>/Users/gwanli/Library/Logs/freeparking-local-watchdog.log</string>

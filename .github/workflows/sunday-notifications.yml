@@ -1,0 +1,37 @@
+name: 일요일 주차 상태 및 처리 결과 알림
+
+on:
+  schedule:
+    - cron: '30 1 * * 0' # 일요일 10:30 KST
+    - cron: '0 3 * * 0'  # 일요일 12:00 KST
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: 'health 또는 summary'
+        required: true
+        type: choice
+        options: [health, summary]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: 운영 앱 알림 요청
+        env:
+          PARKING_APP_URL: ${{ secrets.PARKING_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SCHEDULE: ${{ github.event.schedule }}
+          KIND: ${{ inputs.kind }}
+        run: |
+          set -euo pipefail
+          test -n "$PARKING_APP_URL"
+          test -n "$CRON_SECRET"
+          if [ "$SCHEDULE" = '30 1 * * 0' ] || [ "$KIND" = 'health' ]; then
+            path='/api/cron/sunday-health'
+          else
+            path='/api/cron/sunday-summary'
+          fi
+          curl --fail-with-body --silent --show-error --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "${PARKING_APP_URL%/}$path"

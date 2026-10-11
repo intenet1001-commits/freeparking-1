@@ -974,7 +974,7 @@ export default function Home() {
           <ol className="mt-4 space-y-3 border-t border-white/10 pt-4 text-xs text-slate-300">
             <li><strong className="text-slate-100">1. GitHub 자동등록</strong><p className="mt-1">일요일 09:07~15:07, 매시 7분에 주차 현황을 확인하고 필요한 차량을 등록합니다.</p></li>
             <li><strong className="text-slate-100">2. Mac 보조 복구</strong><p className="mt-1">Mac이 켜져 있으면 일요일 10:30·11:20·12:00·12:10에 확인합니다. 실행이 누락되면 복구 실행과 지연 알림을 요청합니다.</p></li>
-            <li><strong className="text-slate-100">3. Vercel 누락 감시</strong><p className="mt-1">일요일 오전 상태 알림을 보강하고, 정오 무렵 실행 기록이 없거나 완료되지 않았으면 경고 푸시를 보냅니다.</p></li>
+            <li><strong className="text-slate-100">3. Vercel 누락 감시</strong><p className="mt-1">일요일 10:30 상태 알림과 12:00 처리 결과를 보강하고, 12:10에 실행 기록이 없거나 완료되지 않았으면 경고 푸시를 보냅니다.</p></li>
           </ol>
           <p className="mt-4 text-[11px] leading-relaxed text-slate-400">일요일 10:30에는 작동 상태, 정오에는 처리 결과를 푸시로 안내합니다. 예약 실행은 지연될 수 있습니다. 실제 처리 결과는 아래 등록 기록과 주차 현황에서 확인해 주세요.</p>
         </details>

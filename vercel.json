@@ -1,8 +1,8 @@
 {
   "crons": [
-    { "path": "/api/cron/sunday-health", "schedule": "0 2 * * 0" },
+    { "path": "/api/cron/sunday-health", "schedule": "30 1 * * 0" },
     { "path": "/api/cron/sunday-summary", "schedule": "0 3 * * 0" },
-    { "path": "/api/cron/registration-watchdog", "schedule": "0 3 * * 0" }
+    { "path": "/api/cron/registration-watchdog", "schedule": "10 3 * * 0" }
   ],
   "functions": {
     "app/api/register/route.ts": {

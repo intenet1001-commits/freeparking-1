@@ -966,6 +966,19 @@ export default function Home() {
           </div>
         </div>
 
+        <details className="fp-panel group rounded-2xl px-4 py-3 text-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-slate-100 [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-2 font-semibold"><ShieldCheck className="h-4 w-4 text-cyan-300" /> 자동등록 3단계 보호</span>
+            <span className="flex items-center gap-1 text-xs text-slate-400">실행 정보 <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></span>
+          </summary>
+          <ol className="mt-4 space-y-3 border-t border-white/10 pt-4 text-xs text-slate-300">
+            <li><strong className="text-slate-100">1. GitHub 자동등록</strong><p className="mt-1">일요일 09:07~15:07, 매시 7분에 주차 현황을 확인하고 필요한 차량을 등록합니다.</p></li>
+            <li><strong className="text-slate-100">2. Mac 보조 복구</strong><p className="mt-1">Mac이 켜져 있으면 일요일 11:20·12:10에 실행 기록을 확인합니다. 성공하거나 진행 중인 실행이 없으면 복구 실행과 지연 알림을 요청합니다.</p></li>
+            <li><strong className="text-slate-100">3. Vercel 누락 감시</strong><p className="mt-1">일요일 정오 무렵 실행 기록이 없거나 완료되지 않았으면 경고 푸시를 보냅니다.</p></li>
+          </ol>
+          <p className="mt-4 text-[11px] leading-relaxed text-slate-400">이 화면은 예약 구성을 안내합니다. 실제 처리 결과는 아래 등록 기록과 주차 현황에서 확인해 주세요.</p>
+        </details>
+
         <PushSettings />
 
         {/* 오류 시 클로드코드 전달 버튼 */}

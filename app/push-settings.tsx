@@ -84,7 +84,7 @@ export default function PushSettings() {
         throw new Error(data.error || '서버에 알림 구독을 저장하지 못했습니다.');
       }
       setMode('on');
-      setMessage('오류와 일요일 정오 현황을 이 기기로 알려드립니다.');
+      setMessage('오류와 일요일 10:30 작동 상태·12:00 처리 결과를 이 기기로 알려드립니다.');
     } catch (error) {
       setMode('off');
       setMessage(error instanceof Error ? error.message : '알림을 켜지 못했습니다.');
@@ -142,11 +142,11 @@ export default function PushSettings() {
           <div>
             <h2 className="text-sm font-semibold text-slate-100">주차 알림</h2>
             <p className="mt-1 text-xs leading-5 text-slate-400">
-              {mode === 'on' ? '오류와 일요일 12시 등록 현황 알림 켜짐'
+              {mode === 'on' ? '오류와 일요일 10:30 상태·12:00 처리 결과 알림 켜짐'
                 : mode === 'unconfigured' ? '서버 알림 설정 준비 중'
                 : mode === 'denied' ? '아이폰 설정에서 알림 권한을 허용해주세요.'
                 : mode === 'unsupported' ? '이 브라우저에서는 알림을 사용할 수 없습니다. 아이폰은 홈 화면에 추가한 뒤 열어주세요.'
-                : '오류와 일요일 정오 무렵 등록 현황을 알려드립니다.'}
+                : '오류와 일요일 10:30 상태·12:00 처리 결과를 알려드립니다.'}
             </p>
           </div>
         </div>
